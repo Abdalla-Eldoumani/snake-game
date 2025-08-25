@@ -17,6 +17,12 @@
 .equ SYS_CLOSE, 57
 .equ CLOCK_MONOTONIC, 1
 
+# File open flags  
+.equ O_RDONLY, 0
+.equ O_WRONLY, 1
+.equ O_CREAT, 64
+.equ O_TRUNC, 512
+
 # Standard file descriptors
 .equ STDIN_FILENO, 0
 .equ STDOUT_FILENO, 1
@@ -305,6 +311,11 @@ init_game:
     ldp     x2, x3, [x1]
     stp     x2, x3, [x0]
     
+    # Initialize total paused time
+    adr     x0, total_paused_time
+    mov     w1, #0
+    str     w1, [x0]
+    
     # Load high scores
     bl      load_high_scores
     
@@ -461,16 +472,42 @@ toggle_pause:
     
     # Check if we're currently paused (about to unpause)
     cmp     w1, #1
-    mov     w2, #0
-    cset    w2, eq
+    b.eq    unpause_game
     
-    # Toggle pause state
-    eor     w1, w1, #1
+    # Currently unpaused, about to pause - record pause start time
+    bl      get_current_time
+    adr     x0, pause_start_time
+    adr     x1, current_time
+    ldp     x2, x3, [x1]
+    stp     x2, x3, [x0]
+    
+    # Set paused state
+    adr     x0, game_paused
+    mov     w1, #1
+    str     w1, [x0]
+    b       handle_input_done
+    
+unpause_game:
+    # Currently paused, about to unpause - calculate paused time
+    bl      get_current_time
+    adr     x0, current_time
+    adr     x1, pause_start_time
+    ldr     x2, [x0]
+    ldr     x3, [x1]
+    sub     x2, x2, x3
+    
+    # Add to total paused time
+    adr     x0, total_paused_time
+    ldr     w1, [x0]
+    add     w1, w1, w2
     str     w1, [x0]
     
-    # If we just unpaused (w2 == 1), clear screen and redraw for clean resume
-    cmp     w2, #1
-    b.ne    handle_input_done
+    # Set unpaused state
+    adr     x0, game_paused
+    mov     w1, #0
+    str     w1, [x0]
+    
+    # Clear screen and redraw for clean resume
     bl      clear_screen
     bl      draw_game
 
@@ -1257,7 +1294,12 @@ calculate_elapsed_time:
     
     sub     x2, x2, x3
     
-    # Store elapsed seconds
+    # Subtract total paused time to get actual playing time
+    adr     x0, total_paused_time
+    ldr     w4, [x0]
+    sub     x2, x2, x4
+    
+    # Store playing seconds (not total elapsed)
     adr     x0, elapsed_seconds
     str     w2, [x0]
     
@@ -1288,14 +1330,14 @@ load_high_scores:
     
     # Try to open file for reading
     adr     x0, high_score_file
-    mov     x1, #0
+    mov     x1, #O_RDONLY
     mov     x2, #0
     mov     x8, #SYS_OPEN
     svc     #0
     
-    # If file doesn't exist (negative fd), use defaults
+    # If file doesn't exist (negative fd), set file_exists flag to false
     cmp     x0, #0
-    b.lt    load_high_scores_done
+    b.lt    set_no_file_flag
     
     # Read high score data (12 bytes: score, food_count, time)
     mov     x19, x0
@@ -1308,6 +1350,17 @@ load_high_scores:
     mov     x0, x19
     mov     x8, #SYS_CLOSE
     svc     #0
+    
+    # Set file exists flag to true
+    adr     x0, file_exists
+    mov     w1, #1
+    str     w1, [x0]
+    b       load_high_scores_done
+
+set_no_file_flag:
+    # Mark that no high score file exists yet
+    adr     x0, file_exists
+    str     wzr, [x0]
 
 load_high_scores_done:
     ldp     x29, x30, [sp], #16
@@ -1320,8 +1373,10 @@ save_high_scores:
     
     # Create/open file for writing
     adr     x0, high_score_file
-    mov     x1, #577
-    mov     x2, #644
+    mov     x1, #O_WRONLY
+    orr     x1, x1, #O_CREAT
+    orr     x1, x1, #O_TRUNC
+    mov     x2, #420
     mov     x8, #SYS_OPEN
     svc     #0
     
@@ -1362,7 +1417,6 @@ check_and_update_records:
     # New high score
     str     w2, [x1]
     mov     w19, #1
-    bl      play_new_record_sound
     
 check_food_record:
     # Check food count record
@@ -1376,7 +1430,6 @@ check_food_record:
     # New high food count
     str     w2, [x1]
     mov     w19, #1
-    bl      play_new_record_sound
     
 check_time_record:
     # Check time record
@@ -1391,12 +1444,17 @@ check_time_record:
     # New time record
     str     w2, [x1]
     mov     w19, #1
-    bl      play_new_record_sound
     
 save_records:
-    # If any new record, display message and save to file
+    # If any new record, check if we should display message
     cmp     w19, #1
     b.ne    check_records_done
+    
+    # Only display "NEW RECORD" if file existed before (had previous scores to beat)
+    adr     x0, file_exists
+    ldr     w0, [x0]
+    cmp     w0, #1
+    b.ne    save_file_only
     
     mov     x0, #STDOUT_FILENO
     adr     x1, new_record_text
@@ -1404,6 +1462,9 @@ save_records:
     mov     x8, #SYS_WRITE
     svc     #0
     
+    bl      play_new_record_sound
+
+save_file_only:
     bl      save_high_scores
     
 check_records_done:
@@ -1412,56 +1473,56 @@ check_records_done:
 
 # Sound effects functions
 play_food_sound:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    
+    # Try terminal bell first
     mov     x0, #STDOUT_FILENO
     adr     x1, bell_sound
     mov     x2, #1
     mov     x8, #SYS_WRITE
     svc     #0
+    
+    # Force flush output
+    mov     x0, #STDOUT_FILENO
+    mov     x1, #0
+    mov     x8, #74
+    svc     #0
+    
+    ldp     x29, x30, [sp], #16
     ret
 
 play_golden_food_sound:
-    # Play two bells for golden food
-    mov     x0, #STDOUT_FILENO
-    adr     x1, bell_sound
-    mov     x2, #1
-    mov     x8, #SYS_WRITE
-    svc     #0
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
     
-    mov     x0, #STDOUT_FILENO
-    adr     x1, bell_sound
-    mov     x2, #1
-    mov     x8, #SYS_WRITE
-    svc     #0
+    # Play two bells for golden food
+    bl      play_food_sound
+    bl      play_food_sound
+    
+    ldp     x29, x30, [sp], #16
     ret
 
 play_new_record_sound:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    
     # Play three bells for new record
-    mov     x0, #STDOUT_FILENO
-    adr     x1, bell_sound
-    mov     x2, #1
-    mov     x8, #SYS_WRITE
-    svc     #0
+    bl      play_food_sound
+    bl      play_food_sound  
+    bl      play_food_sound
     
-    mov     x0, #STDOUT_FILENO
-    adr     x1, bell_sound
-    mov     x2, #1
-    mov     x8, #SYS_WRITE
-    svc     #0
-    
-    mov     x0, #STDOUT_FILENO
-    adr     x1, bell_sound
-    mov     x2, #1
-    mov     x8, #SYS_WRITE
-    svc     #0
+    ldp     x29, x30, [sp], #16
     ret
 
 play_game_over_sound:
-    # Play a sequence for game over (bell + pause + bell)
-    mov     x0, #STDOUT_FILENO
-    adr     x1, bell_sound
-    mov     x2, #1
-    mov     x8, #SYS_WRITE
-    svc     #0
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    
+    # Play game over sound
+    bl      play_food_sound
+    
+    ldp     x29, x30, [sp], #16
     ret
 
 # Game sleep function with progressive speed
@@ -1525,12 +1586,15 @@ quit_flag:      .word 0
 # Game statistics
 game_start_time: .space 16
 current_time:   .space 16
+pause_start_time: .space 16
+total_paused_time: .word 0
 elapsed_seconds: .word 0
 
 # High score data
 high_score:     .word 0
 high_food_count: .word 0
 longest_time:   .word 0
+file_exists:    .word 0
 
 # Input/output buffers
 input_buffer:   .space 4
@@ -1614,3 +1678,7 @@ new_record_text: .ascii "\n*** NEW RECORD! ***\n"
 new_record_text_len = . - new_record_text
 
 bell_sound: .ascii "\x07"
+
+# Alternative visual feedback when audio doesn't work
+flash_text: .ascii "\x1b[5m*BEEP*\x1b[25m"
+flash_text_len = . - flash_text
