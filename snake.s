@@ -558,7 +558,7 @@ check_food_collision:
     
     adr     x0, score
     ldr     w1, [x0]
-    add     w1, w1, #10
+    add     w1, w1, #1
     str     w1, [x0]
     
     # Place new food
