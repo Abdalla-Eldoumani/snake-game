@@ -130,7 +130,7 @@ make debug
 
 ### Game Rules
 - Snake moves continuously in current direction
-- Eating food increases score (+10 points) and snake length
+- Eating food increases score and snake length
 - Game terminates on wall collision or self-intersection
 - Direction changes are queued and processed at next game tick
 
