@@ -265,6 +265,11 @@ init_game:
     mov     w1, #0
     str     w1, [x0]
     
+    # Initialize food count
+    adr     x0, food_count
+    mov     w1, #0
+    str     w1, [x0]
+    
     # Place first food
     bl      place_food
     
@@ -557,6 +562,11 @@ check_food_collision:
     str     w1, [x0]
     
     adr     x0, score
+    ldr     w1, [x0]
+    add     w1, w1, #1
+    str     w1, [x0]
+    
+    adr     x0, food_count
     ldr     w1, [x0]
     add     w1, w1, #1
     str     w1, [x0]
@@ -1006,6 +1016,31 @@ display_game_over:
     mov     x8, #SYS_WRITE
     svc     #0
     
+    # Display newline
+    mov     x0, #STDOUT_FILENO
+    adr     x1, newline
+    mov     x2, #1
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    # Display food count
+    mov     x0, #STDOUT_FILENO
+    adr     x1, food_count_text
+    mov     x2, food_count_text_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    adr     x0, food_count
+    ldr     w0, [x0]
+    adr     x1, food_buffer
+    bl      int_to_string
+    
+    mov     x2, x0
+    mov     x0, #STDOUT_FILENO
+    adr     x1, food_buffer
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
     mov     x0, #STDOUT_FILENO
     adr     x1, newline
     mov     x2, #1
@@ -1043,12 +1078,14 @@ snake_head_index: .word 0
 snake_direction: .word DIR_RIGHT
 food_position:  .space 8
 score:          .word 0
+food_count:     .word 0
 quit_flag:      .word 0
 
 # Input/output buffers
 input_buffer:   .space 4
 random_buffer:  .space 2
 score_buffer:   .space 12
+food_buffer:    .space 12
 
 # Sleep timing
 sleep_time:
@@ -1098,3 +1135,6 @@ game_over_text_len = . - game_over_text
 
 final_score_text: .ascii "Final Score: "
 final_score_text_len = . - final_score_text
+
+food_count_text: .ascii "Food Eaten: "
+food_count_text_len = . - food_count_text
