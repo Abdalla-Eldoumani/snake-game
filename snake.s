@@ -45,6 +45,10 @@
 .equ CELL_FOOD, 2
 .equ CELL_WALL, 3
 
+# Food types
+.equ FOOD_NORMAL, 0
+.equ FOOD_GOLDEN, 1
+
 _start:
     # Set up stack frame
     stp     x29, x30, [sp, #-16]!
@@ -83,6 +87,12 @@ game_loop:
     cmp     w1, #1
     b.eq    game_over
     
+    # Check if game is paused
+    adr     x0, game_paused
+    ldr     w1, [x0]
+    cmp     w1, #1
+    b.eq    pause_loop
+    
     # Move snake
     bl      move_snake
     
@@ -101,6 +111,15 @@ game_loop:
     bl      game_sleep
     
     # Continue loop
+    b       game_loop
+
+pause_loop:
+    # Display pause message
+    bl      draw_game
+    bl      display_pause_message
+    
+    # Sleep briefly and continue checking input
+    bl      game_sleep
     b       game_loop
 
 game_over:
@@ -270,6 +289,11 @@ init_game:
     mov     w1, #0
     str     w1, [x0]
     
+    # Initialize pause state
+    adr     x0, game_paused
+    mov     w1, #0
+    str     w1, [x0]
+    
     # Place first food
     bl      place_food
     
@@ -338,6 +362,10 @@ handle_input:
     b.eq    set_direction_right
     cmp     w0, #'D'
     b.eq    set_direction_right
+    
+    # Check for pause (space key)
+    cmp     w0, #' '
+    b.eq    toggle_pause
     
     # Check for escape sequence (arrow keys)
     cmp     w0, #0x1b
@@ -412,6 +440,25 @@ handle_arrow_keys:
     b.eq    set_direction_right
     cmp     w1, #'D'
     b.eq    set_direction_left
+
+toggle_pause:
+    adr     x0, game_paused
+    ldr     w1, [x0]
+    
+    # Check if we're currently paused (about to unpause)
+    cmp     w1, #1
+    mov     w2, #0
+    cset    w2, eq
+    
+    # Toggle pause state
+    eor     w1, w1, #1
+    str     w1, [x0]
+    
+    # If we just unpaused (w2 == 1), clear screen and redraw for clean resume
+    cmp     w2, #1
+    b.ne    handle_input_done
+    bl      clear_screen
+    bl      draw_game
 
 handle_input_done:
     ldp     x29, x30, [sp], #16
@@ -561,9 +608,19 @@ check_food_collision:
     add     w1, w1, #1
     str     w1, [x0]
     
+    # Check food type for score bonus
+    adr     x0, food_type
+    ldr     w2, [x0]
+    cmp     w2, #FOOD_GOLDEN
+    
     adr     x0, score
     ldr     w1, [x0]
-    add     w1, w1, #1
+    
+    # Give 5 points for golden food, 1 for normal
+    mov     w3, #5
+    mov     w4, #1
+    csel    w2, w3, w4, eq
+    add     w1, w1, w2
     str     w1, [x0]
     
     adr     x0, food_count
@@ -585,6 +642,28 @@ no_food_collision:
 place_food:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
+    
+    # Determine food type (20% chance for golden food)
+    adr     x0, random_buffer
+    mov     x1, #1
+    mov     x2, #0
+    mov     x8, #SYS_GETRANDOM
+    svc     #0
+    
+    adr     x0, random_buffer
+    ldrb    w1, [x0]
+    mov     w2, #5
+    udiv    w3, w1, w2
+    mul     w3, w3, w2
+    sub     w1, w1, w3
+    
+    # If w1 == 0 (20% chance), make it golden food
+    adr     x0, food_type
+    cmp     w1, #0
+    mov     w2, #FOOD_GOLDEN
+    mov     w3, #FOOD_NORMAL
+    csel    w1, w2, w3, eq
+    str     w1, [x0]
     
 place_food_loop:
     # Get random numbers for x and y
@@ -816,9 +895,25 @@ draw_snake_cell:
     b       draw_cell_done
 
 draw_food_cell:
+    # Check food type
+    adr     x0, food_type
+    ldr     w3, [x0]
+    cmp     w3, #FOOD_GOLDEN
+    b.eq    draw_golden_food
+    
+    # Draw normal food
     mov     x0, #STDOUT_FILENO
     adr     x1, food_cell
     mov     x2, food_cell_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    b       draw_cell_done
+
+draw_golden_food:
+    # Draw golden food
+    mov     x0, #STDOUT_FILENO
+    adr     x1, golden_food_cell
+    mov     x2, golden_food_cell_len
     mov     x8, #SYS_WRITE
     svc     #0
 
@@ -1050,12 +1145,52 @@ display_game_over:
     ldp     x29, x30, [sp], #16
     ret
 
-# Game sleep function
+# Display pause message
+display_pause_message:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    
+    # Move cursor to bottom of screen
+    mov     x0, #STDOUT_FILENO
+    adr     x1, pause_text
+    mov     x2, pause_text_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    ldp     x29, x30, [sp], #16
+    ret
+
+# Game sleep function with progressive speed
 game_sleep:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
+    # Calculate sleep time based on snake length
+    # Base speed: 200ms, reduce by 5ms per segment, minimum 80ms
+    adr     x0, snake_length
+    ldr     w1, [x0]
+    
+    # Calculate: max(80ms, 200ms - (length-3)*5ms)
+    sub     w1, w1, #INITIAL_SNAKE_LENGTH
+    mov     w2, #5
+    mul     w1, w1, w2
+    
+    mov     w3, #200
+    subs    w3, w3, w1
+    mov     w4, #80
+    cmp     w3, w4
+    csel    w3, w4, w3, lt
+    
+    # Convert milliseconds to nanoseconds
+    movz    w4, #0x86A0, lsl #0
+    movk    w4, #0xF, lsl #16
+    mul     w3, w3, w4
+    
+    # Store in sleep_time structure
     adr     x0, sleep_time
+    str     xzr, [x0]
+    str     w3, [x0, #8]
+    
     mov     x1, #0
     mov     x8, #SYS_NANOSLEEP
     svc     #0
@@ -1077,8 +1212,10 @@ snake_length:   .word INITIAL_SNAKE_LENGTH
 snake_head_index: .word 0
 snake_direction: .word DIR_RIGHT
 food_position:  .space 8
+food_type:      .word 0
 score:          .word 0
 food_count:     .word 0
+game_paused:    .word 0
 quit_flag:      .word 0
 
 # Input/output buffers
@@ -1112,6 +1249,9 @@ snake_cell_len = . - snake_cell
 food_cell: .ascii "\x1b[41m*\x1b[0m"
 food_cell_len = . - food_cell
 
+golden_food_cell: .ascii "\x1b[43m*\x1b[0m"
+golden_food_cell_len = . - golden_food_cell
+
 empty_cell: .ascii " "
 vertical_border: .ascii "|"
 horizontal_border: .ascii "-"
@@ -1127,7 +1267,7 @@ game_title_len = . - game_title
 score_text: .ascii "Score: "
 score_text_len = . - score_text
 
-controls_text: .ascii "Controls: WASD or Arrow Keys to move, Q to quit\n"
+controls_text: .ascii "Controls: WASD/Arrow Keys to move, SPACE to pause, Q to quit\n"
 controls_text_len = . - controls_text
 
 game_over_text: .ascii "\n=== GAME OVER ===\n"
@@ -1138,3 +1278,6 @@ final_score_text_len = . - final_score_text
 
 food_count_text: .ascii "Food Eaten: "
 food_count_text_len = . - food_count_text
+
+pause_text: .ascii "\n=== PAUSED - Press SPACE to continue ===\n"
+pause_text_len = . - pause_text
