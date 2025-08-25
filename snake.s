@@ -866,9 +866,9 @@ draw_header:
     adr     x1, score_buffer
     bl      int_to_string
     
+    mov     x2, x0          # Save string length
     mov     x0, #STDOUT_FILENO
     adr     x1, score_buffer
-    mov     x2, x0
     mov     x8, #SYS_WRITE
     svc     #0
     
@@ -1000,9 +1000,9 @@ display_game_over:
     adr     x1, score_buffer
     bl      int_to_string
     
+    mov     x2, x0          # Save string length
     mov     x0, #STDOUT_FILENO
     adr     x1, score_buffer
-    mov     x2, x0
     mov     x8, #SYS_WRITE
     svc     #0
     
