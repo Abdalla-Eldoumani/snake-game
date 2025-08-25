@@ -12,6 +12,10 @@
 .equ SYS_IOCTL, 29
 .equ SYS_GETRANDOM, 278
 .equ SYS_FCNTL, 25
+.equ SYS_CLOCK_GETTIME, 113
+.equ SYS_OPEN, 56
+.equ SYS_CLOSE, 57
+.equ CLOCK_MONOTONIC, 1
 
 # Standard file descriptors
 .equ STDIN_FILENO, 0
@@ -293,6 +297,16 @@ init_game:
     adr     x0, game_paused
     mov     w1, #0
     str     w1, [x0]
+    
+    # Record game start time
+    bl      get_current_time
+    adr     x0, game_start_time
+    adr     x1, current_time
+    ldp     x2, x3, [x1]
+    stp     x2, x3, [x0]
+    
+    # Load high scores
+    bl      load_high_scores
     
     # Place first food
     bl      place_food
@@ -608,18 +622,24 @@ check_food_collision:
     add     w1, w1, #1
     str     w1, [x0]
     
-    # Check food type for score bonus
+    # Check food type for score bonus and sound
     adr     x0, food_type
     ldr     w2, [x0]
     cmp     w2, #FOOD_GOLDEN
+    b.eq    golden_food_eaten
     
+    # Normal food eaten
+    bl      play_food_sound
+    mov     w2, #1
+    b       add_score
+    
+golden_food_eaten:
+    bl      play_golden_food_sound
+    mov     w2, #5
+    
+add_score:
     adr     x0, score
     ldr     w1, [x0]
-    
-    # Give 5 points for golden food, 1 for normal
-    mov     w3, #5
-    mov     w4, #1
-    csel    w2, w3, w4, eq
     add     w1, w1, w2
     str     w1, [x0]
     
@@ -977,6 +997,49 @@ draw_header:
     mov     x8, #SYS_WRITE
     svc     #0
     
+    # Display speed level
+    mov     x0, #STDOUT_FILENO
+    adr     x1, speed_text
+    mov     x2, speed_text_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    bl      calculate_speed_level
+    adr     x1, speed_buffer
+    bl      int_to_string
+    
+    mov     x2, x0
+    mov     x0, #STDOUT_FILENO
+    adr     x1, speed_buffer
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    # Display time played
+    mov     x0, #STDOUT_FILENO
+    adr     x1, time_text
+    mov     x2, time_text_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    bl      calculate_elapsed_time
+    adr     x0, elapsed_seconds
+    ldr     w0, [x0]
+    adr     x1, time_buffer
+    bl      int_to_string
+    
+    mov     x2, x0
+    mov     x0, #STDOUT_FILENO
+    adr     x1, time_buffer
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    # Time unit
+    mov     x0, #STDOUT_FILENO
+    adr     x1, seconds_text
+    mov     x2, seconds_text_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
     # Newline
     mov     x0, #STDOUT_FILENO
     adr     x1, newline
@@ -1087,6 +1150,9 @@ display_game_over:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
+    # Play game over sound
+    bl      play_game_over_sound
+    
     mov     x0, #STDOUT_FILENO
     adr     x1, game_over_text
     mov     x2, game_over_text_len
@@ -1142,6 +1208,9 @@ display_game_over:
     mov     x8, #SYS_WRITE
     svc     #0
     
+    # Check for new records and save high scores
+    bl      check_and_update_records
+    
     ldp     x29, x30, [sp], #16
     ret
 
@@ -1158,6 +1227,241 @@ display_pause_message:
     svc     #0
     
     ldp     x29, x30, [sp], #16
+    ret
+
+# Get current time
+get_current_time:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    
+    mov     x0, #CLOCK_MONOTONIC
+    adr     x1, current_time
+    mov     x8, #SYS_CLOCK_GETTIME
+    svc     #0
+    
+    ldp     x29, x30, [sp], #16
+    ret
+
+# Calculate elapsed time in seconds
+calculate_elapsed_time:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    
+    bl      get_current_time
+    
+    # Load current time and start time
+    adr     x0, current_time
+    adr     x1, game_start_time
+    ldr     x2, [x0]
+    ldr     x3, [x1]
+    
+    sub     x2, x2, x3
+    
+    # Store elapsed seconds
+    adr     x0, elapsed_seconds
+    str     w2, [x0]
+    
+    ldp     x29, x30, [sp], #16
+    ret
+
+# Calculate current speed level (1-10)
+calculate_speed_level:
+    adr     x0, snake_length
+    ldr     w0, [x0]
+    
+    # Speed level = min(10, 1 + (length-3)/3)
+    sub     w0, w0, #INITIAL_SNAKE_LENGTH
+    mov     w1, #3
+    udiv    w0, w0, w1
+    add     w0, w0, #1
+    
+    mov     w1, #10
+    cmp     w0, w1
+    csel    w0, w1, w0, gt
+    
+    ret
+
+# Load high scores from file
+load_high_scores:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    
+    # Try to open file for reading
+    adr     x0, high_score_file
+    mov     x1, #0
+    mov     x2, #0
+    mov     x8, #SYS_OPEN
+    svc     #0
+    
+    # If file doesn't exist (negative fd), use defaults
+    cmp     x0, #0
+    b.lt    load_high_scores_done
+    
+    # Read high score data (12 bytes: score, food_count, time)
+    mov     x19, x0
+    adr     x1, high_score
+    mov     x2, #12
+    mov     x8, #SYS_READ
+    svc     #0
+    
+    # Close file
+    mov     x0, x19
+    mov     x8, #SYS_CLOSE
+    svc     #0
+
+load_high_scores_done:
+    ldp     x29, x30, [sp], #16
+    ret
+
+# Save high scores to file
+save_high_scores:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    
+    # Create/open file for writing
+    adr     x0, high_score_file
+    mov     x1, #577
+    mov     x2, #644
+    mov     x8, #SYS_OPEN
+    svc     #0
+    
+    cmp     x0, #0
+    b.lt    save_high_scores_done
+    
+    # Write high score data
+    mov     x19, x0
+    adr     x1, high_score
+    mov     x2, #12
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    # Close file
+    mov     x0, x19
+    mov     x8, #SYS_CLOSE
+    svc     #0
+
+save_high_scores_done:
+    ldp     x29, x30, [sp], #16
+    ret
+
+# Check for new records and update high scores
+check_and_update_records:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    
+    mov     w19, #0
+    
+    # Check score record
+    adr     x0, score
+    adr     x1, high_score
+    ldr     w2, [x0]
+    ldr     w3, [x1]
+    cmp     w2, w3
+    b.le    check_food_record
+    
+    # New high score
+    str     w2, [x1]
+    mov     w19, #1
+    bl      play_new_record_sound
+    
+check_food_record:
+    # Check food count record
+    adr     x0, food_count
+    adr     x1, high_food_count
+    ldr     w2, [x0]
+    ldr     w3, [x1]
+    cmp     w2, w3
+    b.le    check_time_record
+    
+    # New high food count
+    str     w2, [x1]
+    mov     w19, #1
+    bl      play_new_record_sound
+    
+check_time_record:
+    # Check time record
+    bl      calculate_elapsed_time
+    adr     x0, elapsed_seconds
+    adr     x1, longest_time
+    ldr     w2, [x0]
+    ldr     w3, [x1]
+    cmp     w2, w3
+    b.le    save_records
+    
+    # New time record
+    str     w2, [x1]
+    mov     w19, #1
+    bl      play_new_record_sound
+    
+save_records:
+    # If any new record, display message and save to file
+    cmp     w19, #1
+    b.ne    check_records_done
+    
+    mov     x0, #STDOUT_FILENO
+    adr     x1, new_record_text
+    mov     x2, new_record_text_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    bl      save_high_scores
+    
+check_records_done:
+    ldp     x29, x30, [sp], #16
+    ret
+
+# Sound effects functions
+play_food_sound:
+    mov     x0, #STDOUT_FILENO
+    adr     x1, bell_sound
+    mov     x2, #1
+    mov     x8, #SYS_WRITE
+    svc     #0
+    ret
+
+play_golden_food_sound:
+    # Play two bells for golden food
+    mov     x0, #STDOUT_FILENO
+    adr     x1, bell_sound
+    mov     x2, #1
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    mov     x0, #STDOUT_FILENO
+    adr     x1, bell_sound
+    mov     x2, #1
+    mov     x8, #SYS_WRITE
+    svc     #0
+    ret
+
+play_new_record_sound:
+    # Play three bells for new record
+    mov     x0, #STDOUT_FILENO
+    adr     x1, bell_sound
+    mov     x2, #1
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    mov     x0, #STDOUT_FILENO
+    adr     x1, bell_sound
+    mov     x2, #1
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    mov     x0, #STDOUT_FILENO
+    adr     x1, bell_sound
+    mov     x2, #1
+    mov     x8, #SYS_WRITE
+    svc     #0
+    ret
+
+play_game_over_sound:
+    # Play a sequence for game over (bell + pause + bell)
+    mov     x0, #STDOUT_FILENO
+    adr     x1, bell_sound
+    mov     x2, #1
+    mov     x8, #SYS_WRITE
+    svc     #0
     ret
 
 # Game sleep function with progressive speed
@@ -1218,11 +1522,26 @@ food_count:     .word 0
 game_paused:    .word 0
 quit_flag:      .word 0
 
+# Game statistics
+game_start_time: .space 16
+current_time:   .space 16
+elapsed_seconds: .word 0
+
+# High score data
+high_score:     .word 0
+high_food_count: .word 0
+longest_time:   .word 0
+
 # Input/output buffers
 input_buffer:   .space 4
 random_buffer:  .space 2
 score_buffer:   .space 12
 food_buffer:    .space 12
+time_buffer:    .space 12
+speed_buffer:   .space 12
+
+# High score file
+high_score_file: .asciz "file.txt"
 
 # Sleep timing
 sleep_time:
@@ -1281,3 +1600,17 @@ food_count_text_len = . - food_count_text
 
 pause_text: .ascii "\n=== PAUSED - Press SPACE to continue ===\n"
 pause_text_len = . - pause_text
+
+speed_text: .ascii " | Speed Level: "
+speed_text_len = . - speed_text
+
+time_text: .ascii " | Time: "
+time_text_len = . - time_text
+
+seconds_text: .ascii "s"
+seconds_text_len = . - seconds_text
+
+new_record_text: .ascii "\n*** NEW RECORD! ***\n"
+new_record_text_len = . - new_record_text
+
+bell_sound: .ascii "\x07"
