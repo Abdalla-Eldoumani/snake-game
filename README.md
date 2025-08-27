@@ -126,6 +126,7 @@ make debug
 - **A/←**: Move left  
 - **S/↓**: Move down
 - **D/→**: Move right
+- **SPACE**: Pause/Unpause game
 - **Q**: Quit game
 
 ### Game Rules
