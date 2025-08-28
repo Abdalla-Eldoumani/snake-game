@@ -38,6 +38,8 @@ The program interfaces directly with the Linux kernel through the ARMv8 system c
 - `nanosleep(101)`: Game timing control
 - `getrandom(278)`: Cryptographically secure random number generation
 - `fcntl(25)`: File descriptor flag manipulation
+- `openat(56)`: File access for high score persistence
+- `close(57)`: File descriptor cleanup
 
 ### Memory Management
 The program employs static memory allocation exclusively, with no dynamic memory allocation or standard library dependencies.
@@ -134,6 +136,8 @@ make debug
 - Eating food increases score and snake length
 - Game terminates on wall collision or self-intersection
 - Direction changes are queued and processed at next game tick
+- High scores are automatically saved to `file.txt` when beaten
+- "NEW RECORD" message displays for record-breaking scores
 
 ## Performance Characteristics
 
@@ -172,14 +176,23 @@ This project demonstrates several key computer systems concepts:
 4. **Real-time Systems**: Timing constraints, input responsiveness, frame rate consistency
 5. **Memory Management**: Static allocation, data structure design, address calculation
 
+## Features
+
+### High Score System
+The game includes a persistent high score system:
+- Scores are automatically saved to `file.txt` when a new record is achieved
+- File is created automatically if it doesn't exist
+- Only actual record-breaking scores trigger saves and "NEW RECORD" messages
+- Uses ARM64-optimized file I/O with proper error handling
+
 ## Potential Enhancements
 
 Future development could incorporate:
-- High score persistence using file I/O system calls
 - Network multiplayer via socket system calls
 - Audio feedback using ALSA or OSS interfaces
 - Graphics acceleration through framebuffer access
 - Performance profiling and optimization
+- Additional statistics tracking (time played, games completed)
 
 ## References
 
