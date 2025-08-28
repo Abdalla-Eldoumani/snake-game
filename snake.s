@@ -13,8 +13,9 @@
 .equ SYS_GETRANDOM, 278
 .equ SYS_FCNTL, 25
 .equ SYS_CLOCK_GETTIME, 113
-.equ SYS_OPEN, 56
+.equ SYS_OPENAT, 56
 .equ SYS_CLOSE, 57
+.equ AT_FDCWD, -100
 .equ CLOCK_MONOTONIC, 1
 
 # File open flags  
@@ -1328,27 +1329,82 @@ load_high_scores:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
-    # Try to open file for reading
-    adr     x0, high_score_file
-    mov     x1, #O_RDONLY
-    mov     x2, #0
-    mov     x8, #SYS_OPEN
+    # Try to open file for reading using openat
+    mov     x0, #AT_FDCWD
+    adr     x1, high_score_file
+    mov     x2, #O_RDONLY
+    mov     x3, #0
+    mov     x8, #SYS_OPENAT
     svc     #0
     
     # If file doesn't exist (negative fd), set file_exists flag to false
     cmp     x0, #0
     b.lt    set_no_file_flag
     
-    # Read high score data (12 bytes: score, food_count, time)
+    # Read high score data as text (up to 32 bytes)
     mov     x19, x0
-    adr     x1, high_score
-    mov     x2, #12
+    adr     x1, high_score_buffer
+    mov     x2, #32
     mov     x8, #SYS_READ
     svc     #0
+    
+    # Store bytes read
+    mov     x20, x0
     
     # Close file
     mov     x0, x19
     mov     x8, #SYS_CLOSE
+    svc     #0
+    
+    # Check if we read some data
+    cmp     x20, #0
+    b.le    set_no_file_flag
+    
+    # Debug: show what we read from file
+    mov     x0, #STDOUT_FILENO
+    adr     x1, debug_loaded_text
+    mov     x2, debug_loaded_text_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    # Show the raw buffer content
+    mov     x0, #STDOUT_FILENO
+    adr     x1, high_score_buffer
+    mov     x2, #10
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    mov     x0, #STDOUT_FILENO
+    adr     x1, newline
+    mov     x2, #1
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    # Parse the text to extract high score
+    adr     x0, high_score_buffer
+    bl      parse_score_from_text
+    
+    # Debug: show parsed high score
+    mov     x0, #STDOUT_FILENO
+    adr     x1, debug_parsed_text
+    mov     x2, debug_parsed_text_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    adr     x0, high_score
+    ldr     w0, [x0]
+    adr     x1, speed_buffer
+    bl      int_to_string
+    mov     x0, #STDOUT_FILENO
+    adr     x1, speed_buffer
+    mov     x2, #10
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    mov     x0, #STDOUT_FILENO
+    adr     x1, newline
+    mov     x2, #1
+    mov     x8, #SYS_WRITE
     svc     #0
     
     # Set file exists flag to true
@@ -1357,9 +1413,14 @@ load_high_scores:
     str     w1, [x0]
     b       load_high_scores_done
 
+
 set_no_file_flag:
     # Mark that no high score file exists yet
     adr     x0, file_exists
+    str     wzr, [x0]
+    
+    # Initialize high score to 0
+    adr     x0, high_score
     str     wzr, [x0]
 
 load_high_scores_done:
@@ -1371,28 +1432,171 @@ save_high_scores:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
-    # Create/open file for writing
-    adr     x0, high_score_file
-    mov     x1, #O_WRONLY
-    orr     x1, x1, #O_CREAT
-    orr     x1, x1, #O_TRUNC
-    mov     x2, #420
-    mov     x8, #SYS_OPEN
+    # Debug: Show what score we're saving
+    # mov     x0, #STDOUT_FILENO
+    # adr     x1, debug_score_text
+    # mov     x2, debug_score_text_len
+    # mov     x8, #SYS_WRITE
+    # svc     #0
+    
+    # Convert high score to text first
+    adr     x0, high_score
+    ldr     w0, [x0]
+    adr     x1, high_score_buffer
+    bl      int_to_string
+    
+    # Display the score we're saving (commented out)
+    # mov     x0, #STDOUT_FILENO
+    # adr     x1, high_score_buffer
+    # mov     x2, #10
+    # mov     x8, #SYS_WRITE
+    # svc     #0
+    
+    # Add newline
+    adr     x0, high_score_buffer
+    mov     x1, x0
+find_end:
+    ldrb    w2, [x1]
+    cbz     w2, add_newline
+    add     x1, x1, #1
+    b       find_end
+add_newline:
+    mov     w2, #10
+    strb    w2, [x1]
+    add     x1, x1, #1
+    strb    wzr, [x1]
+    
+    # Calculate string length
+    sub     x20, x1, x0
+    
+    # Debug: show what filename we're trying to create
+    # mov     x0, #STDOUT_FILENO
+    # adr     x1, debug_filename_text
+    # mov     x2, debug_filename_text_len
+    # mov     x8, #SYS_WRITE
+    # svc     #0
+    # 
+    # # Show the actual filename string
+    # mov     x0, #STDOUT_FILENO
+    # adr     x1, high_score_file
+    # mov     x2, #8
+    # mov     x8, #SYS_WRITE
+    # svc     #0
+    # 
+    # # Print newline
+    # mov     x0, #STDOUT_FILENO
+    # adr     x1, newline
+    # mov     x2, #1
+    # mov     x8, #SYS_WRITE
+    # svc     #0
+    
+    # Try multiple file creation approaches
+    # Use openat system call
+    # openat(dirfd, pathname, flags, mode)
+    mov     x0, #AT_FDCWD
+    adr     x1, high_score_file
+    mov     x2, #577
+    mov     x3, #420
+    mov     x8, #SYS_OPENAT
     svc     #0
     
-    cmp     x0, #0
-    b.lt    save_high_scores_done
+file_open_success:
     
-    # Write high score data
+    # Debug: show file descriptor result
     mov     x19, x0
-    adr     x1, high_score
-    mov     x2, #12
+    # mov     x0, #STDOUT_FILENO
+    # adr     x1, debug_fd_text
+    # mov     x2, debug_fd_text_len
+    # mov     x8, #SYS_WRITE
+    # svc     #0
+    # 
+    # # Convert fd to string and display
+    # mov     w0, w19
+    # adr     x1, score_buffer
+    # bl      int_to_string
+    # mov     x0, #STDOUT_FILENO
+    # adr     x1, score_buffer
+    # mov     x2, #10
+    # mov     x8, #SYS_WRITE
+    # svc     #0
+    # 
+    # # Print newline
+    # mov     x0, #STDOUT_FILENO
+    # adr     x1, newline
+    # mov     x2, #1
+    # mov     x8, #SYS_WRITE
+    # svc     #0
+    
+    # Check for errors
+    mov     x0, x19
+    cmp     x0, #0
+    b.lt    save_high_scores_error
+    
+    # Write high score data as text
+    mov     x0, x19
+    adr     x1, high_score_buffer
+    mov     x2, x20
     mov     x8, #SYS_WRITE
     svc     #0
     
     # Close file
     mov     x0, x19
     mov     x8, #SYS_CLOSE
+    svc     #0
+    
+    # Check write result
+    cmp     x0, #0
+    b.lt    save_high_scores_error
+    
+    # Success message (commented out for clean gameplay)
+    # mov     x0, #STDOUT_FILENO
+    # adr     x1, save_success_text
+    # mov     x2, save_success_text_len
+    # mov     x8, #SYS_WRITE
+    # svc     #0
+    
+    b       save_high_scores_done
+
+save_high_scores_error:
+    # Try alternative path in /tmp directory
+    adr     x0, high_score_file_tmp
+    mov     x1, #O_WRONLY
+    orr     x1, x1, #O_CREAT
+    orr     x1, x1, #O_TRUNC
+    mov     x2, #420
+    mov     x8, #SYS_OPENAT
+    svc     #0
+    
+    # Check if /tmp path worked
+    cmp     x0, #0
+    b.lt    save_high_scores_final_error
+    
+    # Write to /tmp file
+    mov     x19, x0
+    adr     x1, high_score_buffer
+    mov     x2, x20
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    # Close /tmp file
+    mov     x0, x19
+    mov     x8, #SYS_CLOSE
+    svc     #0
+    
+    # Success with alternative path
+    mov     x0, #STDOUT_FILENO
+    adr     x1, save_tmp_success_text
+    mov     x2, save_tmp_success_text_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    b       save_high_scores_done
+
+save_high_scores_final_error:
+    # Final error message
+    mov     x0, #STDOUT_FILENO
+    adr     x1, save_error_text
+    mov     x2, save_error_text_len
+    mov     x8, #SYS_WRITE
     svc     #0
 
 save_high_scores_done:
@@ -1404,18 +1608,86 @@ check_and_update_records:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
-    mov     w19, #0
-    
-    # Check score record
+    # Only check SCORE record (ignore food count and time for NEW RECORD message)
     adr     x0, score
-    adr     x1, high_score
+    adr     x1, high_score  
     ldr     w2, [x0]
     ldr     w3, [x1]
     cmp     w2, w3
+    b.le    check_records_done
+    
+    # NEW HIGH SCORE! 
+    str     w2, [x1]
+    bl      save_high_scores
+    
+    # Only show message if file existed (had previous score to beat)
+    adr     x0, file_exists
+    ldr     w0, [x0]
+    cmp     w0, #1
+    b.ne    check_records_done
+    
+    # Show NEW RECORD message  
+    mov     x0, #STDOUT_FILENO
+    adr     x1, new_record_text
+    mov     x2, new_record_text_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    bl      play_new_record_sound
+
+check_records_done:
+    ldp     x29, x30, [sp], #16
+    ret
+
+# Sound effects functions
+play_food_sound:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    
+    # Try terminal bell first
+    mov     x0, #STDOUT_FILENO
+    adr     x1, bell_sound
+    mov     x2, #1
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    ldp     x29, x30, [sp], #16
+    ret
+
+# Next function
+    mov     x0, #STDOUT_FILENO
+    adr     x1, score_buffer
+    mov     x2, #10
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    mov     x0, #STDOUT_FILENO
+    adr     x1, debug_vs_high
+    mov     x2, debug_vs_high_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    mov     w0, w23
+    adr     x1, food_buffer
+    bl      int_to_string
+    mov     x0, #STDOUT_FILENO
+    adr     x1, food_buffer
+    mov     x2, #10
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    mov     x0, #STDOUT_FILENO
+    adr     x1, newline
+    mov     x2, #1
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    # Restore values and do comparison
+    cmp     w22, w23
     b.le    check_food_record
     
     # New high score
-    str     w2, [x1]
+    str     w22, [x21]
     mov     w19, #1
     
 check_food_record:
@@ -1446,16 +1718,48 @@ check_time_record:
     mov     w19, #1
     
 save_records:
-    # If any new record, check if we should display message
+    # Debug: show what w19 is
+    mov     x0, #STDOUT_FILENO
+    adr     x1, debug_w19_text
+    mov     x2, debug_w19_text_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    mov     w0, w19
+    adr     x1, time_buffer
+    bl      int_to_string
+    mov     x0, #STDOUT_FILENO
+    adr     x1, time_buffer
+    mov     x2, #10
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    mov     x0, #STDOUT_FILENO
+    adr     x1, newline
+    mov     x2, #1
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    # If any new record, save and maybe display message
     cmp     w19, #1
     b.ne    check_records_done
+    
+    # We have a new record - save it
+    mov     x0, #STDOUT_FILENO
+    adr     x1, debug_saving_text
+    mov     x2, debug_saving_text_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    bl      save_high_scores
     
     # Only display "NEW RECORD" if file existed before (had previous scores to beat)
     adr     x0, file_exists
     ldr     w0, [x0]
     cmp     w0, #1
-    b.ne    save_file_only
+    b.ne    check_records_done
     
+    # Display NEW RECORD message
     mov     x0, #STDOUT_FILENO
     adr     x1, new_record_text
     mov     x2, new_record_text_len
@@ -1463,18 +1767,6 @@ save_records:
     svc     #0
     
     bl      play_new_record_sound
-
-save_file_only:
-    bl      save_high_scores
-    
-check_records_done:
-    ldp     x29, x30, [sp], #16
-    ret
-
-# Sound effects functions
-play_food_sound:
-    stp     x29, x30, [sp, #-16]!
-    mov     x29, sp
     
     # Try terminal bell first
     mov     x0, #STDOUT_FILENO
@@ -1563,6 +1855,47 @@ game_sleep:
     ldp     x29, x30, [sp], #16
     ret
 
+# Parse score from text buffer
+# Input: x0 = buffer address
+# Output: Stores parsed score in high_score
+parse_score_from_text:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    
+    mov     x1, x0
+    mov     w2, #0
+    mov     w3, #10
+    
+parse_loop:
+    ldrb    w4, [x1], #1
+    
+    # Check for end of string or newline
+    cbz     w4, parse_done
+    cmp     w4, #10
+    b.eq    parse_done
+    cmp     w4, #32
+    b.eq    parse_done
+    
+    # Check if character is digit (0-9)
+    sub     w4, w4, #48
+    cmp     w4, #0
+    b.lt    parse_loop
+    cmp     w4, #9
+    b.gt    parse_loop
+    
+    # Add digit to accumulator
+    mul     w2, w2, w3
+    add     w2, w2, w4
+    b       parse_loop
+    
+parse_done:
+    # Store result in high_score
+    adr     x0, high_score
+    str     w2, [x0]
+    
+    ldp     x29, x30, [sp], #16
+    ret
+
 .data
 .align 3
 
@@ -1603,9 +1936,11 @@ score_buffer:   .space 12
 food_buffer:    .space 12
 time_buffer:    .space 12
 speed_buffer:   .space 12
+high_score_buffer: .space 32
 
 # High score file
 high_score_file: .asciz "file.txt"
+high_score_file_tmp: .asciz "/tmp/snake_high_score.txt"
 
 # Sleep timing
 sleep_time:
@@ -1676,6 +2011,42 @@ seconds_text_len = . - seconds_text
 
 new_record_text: .ascii "\n*** NEW RECORD! ***\n"
 new_record_text_len = . - new_record_text
+
+save_success_text: .ascii "(High score saved to file.txt)\n"
+save_success_text_len = . - save_success_text
+
+save_error_text: .ascii "(Error: Could not save high score to file.txt - check permissions)\n"
+save_error_text_len = . - save_error_text
+
+save_tmp_success_text: .ascii "(High score saved to /tmp/snake_high_score.txt)\n"
+save_tmp_success_text_len = . - save_tmp_success_text
+
+debug_score_text: .ascii "Saving score: "
+debug_score_text_len = . - debug_score_text
+
+debug_fd_text: .ascii "File descriptor: "
+debug_fd_text_len = . - debug_fd_text
+
+debug_filename_text: .ascii "Trying to create file: "
+debug_filename_text_len = . - debug_filename_text
+
+debug_current_score: .ascii "Current: "
+debug_current_score_len = . - debug_current_score
+
+debug_vs_high: .ascii " vs High: "
+debug_vs_high_len = . - debug_vs_high
+
+debug_w19_text: .ascii "Record flag (w19): "
+debug_w19_text_len = . - debug_w19_text
+
+debug_saving_text: .ascii "Actually saving new record!\n"
+debug_saving_text_len = . - debug_saving_text
+
+debug_loaded_text: .ascii "Loaded from file: '"
+debug_loaded_text_len = . - debug_loaded_text
+
+debug_parsed_text: .ascii "Parsed high score: "
+debug_parsed_text_len = . - debug_parsed_text
 
 bell_sound: .ascii "\x07"
 
