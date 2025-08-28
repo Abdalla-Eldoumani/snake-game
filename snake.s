@@ -1654,135 +1654,135 @@ play_food_sound:
     ldp     x29, x30, [sp], #16
     ret
 
-// Next function
-    mov     x0, #STDOUT_FILENO
-    adr     x1, score_buffer
-    mov     x2, #10
-    mov     x8, #SYS_WRITE
-    svc     #0
+// // Next function
+//     mov     x0, #STDOUT_FILENO
+//     adr     x1, score_buffer
+//     mov     x2, #10
+//     mov     x8, #SYS_WRITE
+//     svc     #0
     
-    mov     x0, #STDOUT_FILENO
-    adr     x1, debug_vs_high
-    mov     x2, debug_vs_high_len
-    mov     x8, #SYS_WRITE
-    svc     #0
+//     mov     x0, #STDOUT_FILENO
+//     adr     x1, debug_vs_high
+//     mov     x2, debug_vs_high_len
+//     mov     x8, #SYS_WRITE
+//     svc     #0
     
-    mov     w0, w23
-    adr     x1, food_buffer
-    bl      int_to_string
-    mov     x0, #STDOUT_FILENO
-    adr     x1, food_buffer
-    mov     x2, #10
-    mov     x8, #SYS_WRITE
-    svc     #0
+//     mov     w0, w23
+//     adr     x1, food_buffer
+//     bl      int_to_string
+//     mov     x0, #STDOUT_FILENO
+//     adr     x1, food_buffer
+//     mov     x2, #10
+//     mov     x8, #SYS_WRITE
+//     svc     #0
     
-    mov     x0, #STDOUT_FILENO
-    adr     x1, newline
-    mov     x2, #1
-    mov     x8, #SYS_WRITE
-    svc     #0
+//     mov     x0, #STDOUT_FILENO
+//     adr     x1, newline
+//     mov     x2, #1
+//     mov     x8, #SYS_WRITE
+//     svc     #0
     
-    // Restore values and do comparison
-    cmp     w22, w23
-    b.le    check_food_record
+//     // Restore values and do comparison
+//     cmp     w22, w23
+//     b.le    check_food_record
     
-    // New high score
-    str     w22, [x21]
-    mov     w19, #1
+//     // New high score
+//     str     w22, [x21]
+//     mov     w19, #1
     
-check_food_record:
-    // Check food count record
-    adr     x0, food_count
-    adr     x1, high_food_count
-    ldr     w2, [x0]
-    ldr     w3, [x1]
-    cmp     w2, w3
-    b.le    check_time_record
+// check_food_record:
+//     // Check food count record
+//     adr     x0, food_count
+//     adr     x1, high_food_count
+//     ldr     w2, [x0]
+//     ldr     w3, [x1]
+//     cmp     w2, w3
+//     b.le    check_time_record
     
-    // New high food count
-    str     w2, [x1]
-    mov     w19, #1
+//     // New high food count
+//     str     w2, [x1]
+//     mov     w19, #1
     
-check_time_record:
-    // Check time record
-    bl      calculate_elapsed_time
-    adr     x0, elapsed_seconds
-    adr     x1, longest_time
-    ldr     w2, [x0]
-    ldr     w3, [x1]
-    cmp     w2, w3
-    b.le    save_records
+// check_time_record:
+//     // Check time record
+//     bl      calculate_elapsed_time
+//     adr     x0, elapsed_seconds
+//     adr     x1, longest_time
+//     ldr     w2, [x0]
+//     ldr     w3, [x1]
+//     cmp     w2, w3
+//     b.le    save_records
     
-    // New time record
-    str     w2, [x1]
-    mov     w19, #1
+//     // New time record
+//     str     w2, [x1]
+//     mov     w19, #1
     
-save_records:
-    // Debug: show what w19 is
-    mov     x0, #STDOUT_FILENO
-    adr     x1, debug_w19_text
-    mov     x2, debug_w19_text_len
-    mov     x8, #SYS_WRITE
-    svc     #0
+// save_records:
+//     // Debug: show what w19 is
+//     mov     x0, #STDOUT_FILENO
+//     adr     x1, debug_w19_text
+//     mov     x2, debug_w19_text_len
+//     mov     x8, #SYS_WRITE
+//     svc     #0
     
-    mov     w0, w19
-    adr     x1, time_buffer
-    bl      int_to_string
-    mov     x0, #STDOUT_FILENO
-    adr     x1, time_buffer
-    mov     x2, #10
-    mov     x8, #SYS_WRITE
-    svc     #0
+//     mov     w0, w19
+//     adr     x1, time_buffer
+//     bl      int_to_string
+//     mov     x0, #STDOUT_FILENO
+//     adr     x1, time_buffer
+//     mov     x2, #10
+//     mov     x8, #SYS_WRITE
+//     svc     #0
     
-    mov     x0, #STDOUT_FILENO
-    adr     x1, newline
-    mov     x2, #1
-    mov     x8, #SYS_WRITE
-    svc     #0
+//     mov     x0, #STDOUT_FILENO
+//     adr     x1, newline
+//     mov     x2, #1
+//     mov     x8, #SYS_WRITE
+//     svc     #0
     
-    // If any new record, save and maybe display message
-    cmp     w19, #1
-    b.ne    check_records_done
+//     // If any new record, save and maybe display message
+//     cmp     w19, #1
+//     b.ne    check_records_done
     
-    // We have a new record - save it
-    mov     x0, #STDOUT_FILENO
-    adr     x1, debug_saving_text
-    mov     x2, debug_saving_text_len
-    mov     x8, #SYS_WRITE
-    svc     #0
+//     // We have a new record - save it
+//     mov     x0, #STDOUT_FILENO
+//     adr     x1, debug_saving_text
+//     mov     x2, debug_saving_text_len
+//     mov     x8, #SYS_WRITE
+//     svc     #0
     
-    bl      save_high_scores
+//     bl      save_high_scores
     
-    // Only display "NEW RECORD" if file existed before (had previous scores to beat)
-    adr     x0, file_exists
-    ldr     w0, [x0]
-    cmp     w0, #1
-    b.ne    check_records_done
+//     // Only display "NEW RECORD" if file existed before (had previous scores to beat)
+//     adr     x0, file_exists
+//     ldr     w0, [x0]
+//     cmp     w0, #1
+//     b.ne    check_records_done
     
-    // Display NEW RECORD message
-    mov     x0, #STDOUT_FILENO
-    adr     x1, new_record_text
-    mov     x2, new_record_text_len
-    mov     x8, #SYS_WRITE
-    svc     #0
+//     // Display NEW RECORD message
+//     mov     x0, #STDOUT_FILENO
+//     adr     x1, new_record_text
+//     mov     x2, new_record_text_len
+//     mov     x8, #SYS_WRITE
+//     svc     #0
     
-    bl      play_new_record_sound
+//     bl      play_new_record_sound
     
-    // Try terminal bell first
-    mov     x0, #STDOUT_FILENO
-    adr     x1, bell_sound
-    mov     x2, #1
-    mov     x8, #SYS_WRITE
-    svc     #0
+//     // Try terminal bell first
+//     mov     x0, #STDOUT_FILENO
+//     adr     x1, bell_sound
+//     mov     x2, #1
+//     mov     x8, #SYS_WRITE
+//     svc     #0
     
-    // Force flush output
-    mov     x0, #STDOUT_FILENO
-    mov     x1, #0
-    mov     x8, #74
-    svc     #0
+//     // Force flush output
+//     mov     x0, #STDOUT_FILENO
+//     mov     x1, #0
+//     mov     x8, #74
+//     svc     #0
     
-    ldp     x29, x30, [sp], #16
-    ret
+//     ldp     x29, x30, [sp], #16
+//     ret
 
 play_golden_food_sound:
     stp     x29, x30, [sp, #-16]!
