@@ -1,10 +1,10 @@
-# Snake Game in ARMv8 (AArch64) Assembly for Linux
-# Target: 64-bit ARM processors
+// Snake Game in ARMv8 (AArch64) Assembly for Linux
+// Target: 64-bit ARM processors
 
 .text
 .global _start
 
-# System call numbers for ARMv8 Linux
+// System call numbers for ARMv8 Linux
 .equ SYS_READ, 63
 .equ SYS_WRITE, 64
 .equ SYS_EXIT, 93
@@ -18,18 +18,18 @@
 .equ AT_FDCWD, -100
 .equ CLOCK_MONOTONIC, 1
 
-# File open flags  
+// File open flags  
 .equ O_RDONLY, 0
 .equ O_WRONLY, 1
 .equ O_CREAT, 64
 .equ O_TRUNC, 512
 
-# Standard file descriptors
+// Standard file descriptors
 .equ STDIN_FILENO, 0
 .equ STDOUT_FILENO, 1
 .equ STDERR_FILENO, 2
 
-# Terminal control constants
+// Terminal control constants
 .equ TCGETS, 0x5401
 .equ TCSETS, 0x5402
 .equ ICANON, 0x0002
@@ -38,111 +38,111 @@
 .equ F_SETFL, 4
 .equ O_NONBLOCK, 0x800
 
-# Game constants
+// Game constants
 .equ GRID_WIDTH, 30
 .equ GRID_HEIGHT, 20
 .equ MAX_SNAKE_LENGTH, 600
 .equ INITIAL_SNAKE_LENGTH, 3
 
-# Direction constants
+// Direction constants
 .equ DIR_UP, 0
 .equ DIR_RIGHT, 1
 .equ DIR_DOWN, 2
 .equ DIR_LEFT, 3
 
-# Cell types
+// Cell types
 .equ CELL_EMPTY, 0
 .equ CELL_SNAKE, 1
 .equ CELL_FOOD, 2
 .equ CELL_WALL, 3
 
-# Food types
+// Food types
 .equ FOOD_NORMAL, 0
 .equ FOOD_GOLDEN, 1
 
 _start:
-    # Set up stack frame
+    // Set up stack frame
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
-    # Save original terminal settings
+    // Save original terminal settings
     bl      save_terminal_settings
     cmp     x0, #0
     b.ne    exit_error
     
-    # Set raw mode
+    // Set raw mode
     bl      set_raw_mode
     cmp     x0, #0
     b.ne    restore_and_exit
     
-    # Set non-blocking input
+    // Set non-blocking input
     bl      set_nonblocking_input
     cmp     x0, #0
     b.ne    restore_and_exit
     
-    # Initialize game
+    // Initialize game
     bl      init_game
     
-    # Clear screen and hide cursor
+    // Clear screen and hide cursor
     bl      clear_screen
     bl      hide_cursor
     
-    # Main game loop
+    // Main game loop
 game_loop:
-    # Handle input
+    // Handle input
     bl      handle_input
     
-    # Check if quit was pressed
+    // Check if quit was pressed
     adr     x0, quit_flag
     ldr     w1, [x0]
     cmp     w1, #1
     b.eq    game_over
     
-    # Check if game is paused
+    // Check if game is paused
     adr     x0, game_paused
     ldr     w1, [x0]
     cmp     w1, #1
     b.eq    pause_loop
     
-    # Move snake
+    // Move snake
     bl      move_snake
     
-    # Check collisions
+    // Check collisions
     bl      check_collisions
     cmp     x0, #0
     b.ne    game_over
     
-    # Check food consumption
+    // Check food consumption
     bl      check_food_collision
     
-    # Draw game
+    // Draw game
     bl      draw_game
     
-    # Sleep
+    // Sleep
     bl      game_sleep
     
-    # Continue loop
+    // Continue loop
     b       game_loop
 
 pause_loop:
-    # Display pause message
+    // Display pause message
     bl      draw_game
     bl      display_pause_message
     
-    # Sleep briefly and continue checking input
+    // Sleep briefly and continue checking input
     bl      game_sleep
     b       game_loop
 
 game_over:
-    # Show cursor and display game over
+    // Show cursor and display game over
     bl      show_cursor
     bl      display_game_over
     
 restore_and_exit:
-    # Restore terminal settings
+    // Restore terminal settings
     bl      restore_terminal_settings
     
-    # Normal exit
+    // Normal exit
     mov     x0, #0
     b       exit_program
     
@@ -153,7 +153,7 @@ exit_program:
     mov     x8, #SYS_EXIT
     svc     #0
 
-# Save original terminal settings
+// Save original terminal settings
 save_terminal_settings:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
@@ -167,18 +167,18 @@ save_terminal_settings:
     ldp     x29, x30, [sp], #16
     ret
 
-# Set terminal to raw mode
+// Set terminal to raw mode
 set_raw_mode:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
-    # Copy original settings to raw settings
+    // Copy original settings to raw settings
     adr     x0, termios_orig
     adr     x1, termios_raw
     mov     x2, #60
     bl      memcpy
     
-    # Modify c_lflag: disable ICANON and ECHO
+    // Modify c_lflag: disable ICANON and ECHO
     adr     x0, termios_raw
     ldr     w1, [x0, #12]
     mov     w2, #ICANON
@@ -186,13 +186,13 @@ set_raw_mode:
     bic     w1, w1, w2
     str     w1, [x0, #12]
     
-    # Set VMIN=1, VTIME=0
+    // Set VMIN=1, VTIME=0
     mov     w1, #1
     strb    w1, [x0, #17]
     mov     w1, #0
     strb    w1, [x0, #18]
     
-    # Apply settings
+    // Apply settings
     mov     x0, #STDIN_FILENO
     mov     x1, #TCSETS
     adr     x2, termios_raw
@@ -202,18 +202,18 @@ set_raw_mode:
     ldp     x29, x30, [sp], #16
     ret
 
-# Set non-blocking input
+// Set non-blocking input
 set_nonblocking_input:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
-    # Get current flags
+    // Get current flags
     mov     x0, #STDIN_FILENO
     mov     x1, #F_GETFL
     mov     x8, #SYS_FCNTL
     svc     #0
     
-    # Add O_NONBLOCK flag
+    // Add O_NONBLOCK flag
     orr     x2, x0, #O_NONBLOCK
     mov     x0, #STDIN_FILENO
     mov     x1, #F_SETFL
@@ -223,7 +223,7 @@ set_nonblocking_input:
     ldp     x29, x30, [sp], #16
     ret
 
-# Restore terminal settings
+// Restore terminal settings
 restore_terminal_settings:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
@@ -237,7 +237,7 @@ restore_terminal_settings:
     ldp     x29, x30, [sp], #16
     ret
 
-# Memory copy function
+// Memory copy function
 memcpy:
     cbz     x2, memcpy_done
 memcpy_loop:
@@ -248,18 +248,18 @@ memcpy_loop:
 memcpy_done:
     ret
 
-# Initialize game state
+// Initialize game state
 init_game:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
-    # Initialize grid (all empty)
+    // Initialize grid (all empty)
     adr     x0, game_grid
     mov     x1, #CELL_EMPTY
     mov     x2, #(GRID_WIDTH * GRID_HEIGHT)
     bl      memset
     
-    # Initialize snake at center
+    // Initialize snake at center
     adr     x0, snake_length
     mov     w1, #INITIAL_SNAKE_LENGTH
     str     w1, [x0]
@@ -272,16 +272,16 @@ init_game:
     mov     w1, #DIR_RIGHT
     str     w1, [x0]
     
-    # Place initial snake segments
+    // Place initial snake segments
     mov     x0, #(GRID_WIDTH / 2)
     mov     x1, #(GRID_HEIGHT / 2)
     
-    # Head
+    // Head
     adr     x2, snake_body
     str     w0, [x2]
     str     w1, [x2, #4]
     
-    # Body segments
+    // Body segments
     sub     w0, w0, #1
     str     w0, [x2, #8]
     str     w1, [x2, #12]
@@ -290,43 +290,43 @@ init_game:
     str     w0, [x2, #16]
     str     w1, [x2, #20]
     
-    # Initialize score
+    // Initialize score
     adr     x0, score
     mov     w1, #0
     str     w1, [x0]
     
-    # Initialize food count
+    // Initialize food count
     adr     x0, food_count
     mov     w1, #0
     str     w1, [x0]
     
-    # Initialize pause state
+    // Initialize pause state
     adr     x0, game_paused
     mov     w1, #0
     str     w1, [x0]
     
-    # Record game start time
+    // Record game start time
     bl      get_current_time
     adr     x0, game_start_time
     adr     x1, current_time
     ldp     x2, x3, [x1]
     stp     x2, x3, [x0]
     
-    # Initialize total paused time
+    // Initialize total paused time
     adr     x0, total_paused_time
     mov     w1, #0
     str     w1, [x0]
     
-    # Load high scores
+    // Load high scores
     bl      load_high_scores
     
-    # Place first food
+    // Place first food
     bl      place_food
     
-    # Initialize grid with snake and food
+    // Initialize grid with snake and food
     bl      update_grid
     
-    # Initialize quit flag
+    // Initialize quit flag
     adr     x0, quit_flag
     mov     w1, #0
     str     w1, [x0]
@@ -334,7 +334,7 @@ init_game:
     ldp     x29, x30, [sp], #16
     ret
 
-# Memory set function
+// Memory set function
 memset:
     cbz     x2, memset_done
 memset_loop:
@@ -345,33 +345,33 @@ memset_done:
     ret
 
 
-# Handle keyboard input
+// Handle keyboard input
 handle_input:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
-    # Try to read input
+    // Try to read input
     mov     x0, #STDIN_FILENO
     adr     x1, input_buffer
     mov     x2, #1
     mov     x8, #SYS_READ
     svc     #0
     
-    # Check if we got input
+    // Check if we got input
     cmp     x0, #1
     b.ne    handle_input_done
     
-    # Get the character
+    // Get the character
     adr     x0, input_buffer
     ldrb    w0, [x0]
     
-    # Check for quit
+    // Check for quit
     cmp     w0, #'q'
     b.eq    set_quit_flag
     cmp     w0, #'Q'
     b.eq    set_quit_flag
     
-    # Check for direction keys
+    // Check for direction keys
     cmp     w0, #'w'
     b.eq    set_direction_up
     cmp     w0, #'W'
@@ -389,11 +389,11 @@ handle_input:
     cmp     w0, #'D'
     b.eq    set_direction_right
     
-    # Check for pause (space key)
+    // Check for pause (space key)
     cmp     w0, #' '
     b.eq    toggle_pause
     
-    # Check for escape sequence (arrow keys)
+    // Check for escape sequence (arrow keys)
     cmp     w0, #0x1b
     b.eq    handle_arrow_keys
     
@@ -442,7 +442,7 @@ set_direction_right:
     b       handle_input_done
 
 handle_arrow_keys:
-    # Read next two characters of escape sequence
+    // Read next two characters of escape sequence
     mov     x0, #STDIN_FILENO
     adr     x1, input_buffer
     mov     x2, #2
@@ -471,25 +471,25 @@ toggle_pause:
     adr     x0, game_paused
     ldr     w1, [x0]
     
-    # Check if we're currently paused (about to unpause)
+    // Check if we're currently paused (about to unpause)
     cmp     w1, #1
     b.eq    unpause_game
     
-    # Currently unpaused, about to pause - record pause start time
+    // Currently unpaused, about to pause - record pause start time
     bl      get_current_time
     adr     x0, pause_start_time
     adr     x1, current_time
     ldp     x2, x3, [x1]
     stp     x2, x3, [x0]
     
-    # Set paused state
+    // Set paused state
     adr     x0, game_paused
     mov     w1, #1
     str     w1, [x0]
     b       handle_input_done
     
 unpause_game:
-    # Currently paused, about to unpause - calculate paused time
+    // Currently paused, about to unpause - calculate paused time
     bl      get_current_time
     adr     x0, current_time
     adr     x1, pause_start_time
@@ -497,18 +497,18 @@ unpause_game:
     ldr     x3, [x1]
     sub     x2, x2, x3
     
-    # Add to total paused time
+    // Add to total paused time
     adr     x0, total_paused_time
     ldr     w1, [x0]
     add     w1, w1, w2
     str     w1, [x0]
     
-    # Set unpaused state
+    // Set unpaused state
     adr     x0, game_paused
     mov     w1, #0
     str     w1, [x0]
     
-    # Clear screen and redraw for clean resume
+    // Clear screen and redraw for clean resume
     bl      clear_screen
     bl      draw_game
 
@@ -516,12 +516,12 @@ handle_input_done:
     ldp     x29, x30, [sp], #16
     ret
 
-# Move snake
+// Move snake
 move_snake:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
-    # Get current head position
+    // Get current head position
     adr     x0, snake_head_index
     ldr     w0, [x0]
     adr     x1, snake_body
@@ -532,7 +532,7 @@ move_snake:
     ldr     w2, [x1]
     ldr     w3, [x1, #4]
     
-    # Calculate new head position based on direction
+    // Calculate new head position based on direction
     adr     x0, snake_direction
     ldr     w0, [x0]
     
@@ -562,7 +562,7 @@ move_right:
     add     w2, w2, #1
 
 update_head:
-    # Calculate new head index (circular buffer)
+    // Calculate new head index (circular buffer)
     adr     x0, snake_head_index
     ldr     w1, [x0]
     add     w4, w1, #1
@@ -570,7 +570,7 @@ update_head:
     csel    w4, wzr, w4, eq
     str     w4, [x0]
     
-    # Store new head position
+    // Store new head position
     adr     x0, snake_body
     mov     w5, #8
     mul     x6, x4, x5
@@ -582,12 +582,12 @@ move_snake_done:
     ldp     x29, x30, [sp], #16
     ret
 
-# Check collisions with walls and self
+// Check collisions with walls and self
 check_collisions:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
-    # Get head position
+    // Get head position
     adr     x0, snake_head_index
     ldr     w0, [x0]
     adr     x1, snake_body
@@ -598,7 +598,7 @@ check_collisions:
     ldr     w2, [x1]
     ldr     w3, [x1, #4]
     
-    # Check wall collisions
+    // Check wall collisions
     cmp     w2, #0
     b.lt    collision_detected
     cmp     w2, #(GRID_WIDTH - 1)
@@ -608,7 +608,7 @@ check_collisions:
     cmp     w3, #(GRID_HEIGHT - 1)
     b.gt    collision_detected
     
-    # Check self collision
+    // Check self collision
     mov     w4, #GRID_WIDTH
     mul     w3, w3, w4
     add     w2, w2, w3
@@ -618,7 +618,7 @@ check_collisions:
     cmp     w1, #CELL_SNAKE
     b.eq    collision_detected
     
-    # No collision
+    // No collision
     mov     x0, #0
     ldp     x29, x30, [sp], #16
     ret
@@ -628,12 +628,12 @@ collision_detected:
     ldp     x29, x30, [sp], #16
     ret
 
-# Check food collision and handle growth
+// Check food collision and handle growth
 check_food_collision:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
-    # Get head position
+    // Get head position
     adr     x0, snake_head_index
     ldr     w0, [x0]
     adr     x1, snake_body
@@ -644,7 +644,7 @@ check_food_collision:
     ldr     w2, [x1]
     ldr     w3, [x1, #4]
     
-    # Check if head is on food
+    // Check if head is on food
     adr     x0, food_position
     ldr     w4, [x0]
     ldr     w5, [x0, #4]
@@ -654,19 +654,19 @@ check_food_collision:
     cmp     w3, w5
     b.ne    no_food_collision
     
-    # Food eaten - grow snake and increase score
+    // Food eaten - grow snake and increase score
     adr     x0, snake_length
     ldr     w1, [x0]
     add     w1, w1, #1
     str     w1, [x0]
     
-    # Check food type for score bonus and sound
+    // Check food type for score bonus and sound
     adr     x0, food_type
     ldr     w2, [x0]
     cmp     w2, #FOOD_GOLDEN
     b.eq    golden_food_eaten
     
-    # Normal food eaten
+    // Normal food eaten
     bl      play_food_sound
     mov     w2, #1
     b       add_score
@@ -686,22 +686,22 @@ add_score:
     add     w1, w1, #1
     str     w1, [x0]
     
-    # Place new food
+    // Place new food
     bl      place_food
     
 no_food_collision:
-    # Update grid with new snake position
+    // Update grid with new snake position
     bl      update_grid
     
     ldp     x29, x30, [sp], #16
     ret
 
-# Place food randomly on grid
+// Place food randomly on grid
 place_food:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
-    # Determine food type (20% chance for golden food)
+    // Determine food type (20% chance for golden food)
     adr     x0, random_buffer
     mov     x1, #1
     mov     x2, #0
@@ -715,7 +715,7 @@ place_food:
     mul     w3, w3, w2
     sub     w1, w1, w3
     
-    # If w1 == 0 (20% chance), make it golden food
+    // If w1 == 0 (20% chance), make it golden food
     adr     x0, food_type
     cmp     w1, #0
     mov     w2, #FOOD_GOLDEN
@@ -724,14 +724,14 @@ place_food:
     str     w1, [x0]
     
 place_food_loop:
-    # Get random numbers for x and y
+    // Get random numbers for x and y
     adr     x0, random_buffer
     mov     x1, #2
     mov     x2, #0
     mov     x8, #SYS_GETRANDOM
     svc     #0
     
-    # Convert to grid coordinates
+    // Convert to grid coordinates
     adr     x0, random_buffer
     ldrb    w1, [x0]
     mov     w2, #GRID_WIDTH
@@ -745,7 +745,7 @@ place_food_loop:
     mul     w5, w5, w2
     sub     w4, w4, w5
     
-    # Check if position is empty
+    // Check if position is empty
     mov     w2, #GRID_WIDTH
     mul     w4, w4, w2
     add     w1, w1, w4
@@ -755,11 +755,11 @@ place_food_loop:
     cmp     w2, #CELL_EMPTY
     b.ne    place_food_loop
     
-    # Place food
+    // Place food
     mov     w2, #CELL_FOOD
     strb    w2, [x0, x1]
     
-    # Store food position
+    // Store food position
     mov     w2, #GRID_WIDTH
     udiv    w4, w1, w2
     mul     w5, w4, w2
@@ -772,18 +772,18 @@ place_food_loop:
     ldp     x29, x30, [sp], #16
     ret
 
-# Update grid with current snake position
+// Update grid with current snake position
 update_grid:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
-    # Clear entire grid first
+    // Clear entire grid first
     adr     x0, game_grid
     mov     x1, #CELL_EMPTY
     mov     x2, #(GRID_WIDTH * GRID_HEIGHT)
     bl      memset
     
-    # Place all snake segments
+    // Place all snake segments
     adr     x19, snake_length
     ldr     w19, [x19]
     adr     x20, snake_head_index
@@ -796,14 +796,14 @@ place_snake_segments:
     cmp     w22, w19
     b.ge    snake_placed
     
-    # Calculate segment index (head - counter, with wraparound)
+    // Calculate segment index (head - counter, with wraparound)
     sub     w23, w20, w22
     cmp     w23, #0
     b.ge    index_positive
     add     w23, w23, #MAX_SNAKE_LENGTH
     
 index_positive:
-    # Get segment position
+    // Get segment position
     mov     w24, #8
     mul     w23, w23, w24
     add     x23, x21, x23
@@ -811,12 +811,12 @@ index_positive:
     ldr     w24, [x23]
     ldr     w25, [x23, #4]
     
-    # Calculate grid position
+    // Calculate grid position
     mov     w26, #GRID_WIDTH
     mul     w25, w25, w26
     add     w24, w24, w25
     
-    # Place snake segment on grid
+    // Place snake segment on grid
     adr     x26, game_grid
     mov     w27, #CELL_SNAKE
     strb    w27, [x26, x24]
@@ -825,7 +825,7 @@ index_positive:
     b       place_snake_segments
     
 snake_placed:
-    # Place food
+    // Place food
     adr     x0, food_position
     ldr     w1, [x0]
     ldr     w2, [x0, #4]
@@ -841,7 +841,7 @@ snake_placed:
     ldp     x29, x30, [sp], #16
     ret
 
-# Clear screen
+// Clear screen
 clear_screen:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
@@ -855,7 +855,7 @@ clear_screen:
     ldp     x29, x30, [sp], #16
     ret
 
-# Hide cursor
+// Hide cursor
 hide_cursor:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
@@ -869,7 +869,7 @@ hide_cursor:
     ldp     x29, x30, [sp], #16
     ret
 
-# Show cursor
+// Show cursor
 show_cursor:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
@@ -883,46 +883,46 @@ show_cursor:
     ldp     x29, x30, [sp], #16
     ret
 
-# Draw the game
+// Draw the game
 draw_game:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
-    # Move cursor to top
+    // Move cursor to top
     mov     x0, #STDOUT_FILENO
     adr     x1, move_cursor_home
     mov     x2, move_cursor_home_len
     mov     x8, #SYS_WRITE
     svc     #0
     
-    # Draw title and score
+    // Draw title and score
     bl      draw_header
     
-    # Draw top border
+    // Draw top border
     bl      draw_horizontal_border
     
-    # Draw game grid
+    // Draw game grid
     mov     w19, #0
     
 draw_grid_loop:
     cmp     w19, #GRID_HEIGHT
     b.ge    draw_grid_done
     
-    # Draw left border
+    // Draw left border
     mov     x0, #STDOUT_FILENO
     adr     x1, vertical_border
     mov     x2, #1
     mov     x8, #SYS_WRITE
     svc     #0
     
-    # Draw row
+    // Draw row
     mov     w20, #0
     
 draw_row_loop:
     cmp     w20, #GRID_WIDTH
     b.ge    draw_row_done
     
-    # Get cell value
+    // Get cell value
     mov     w0, #GRID_WIDTH
     mul     w1, w19, w0
     add     w1, w1, w20
@@ -930,13 +930,13 @@ draw_row_loop:
     adr     x0, game_grid
     ldrb    w2, [x0, x1]
     
-    # Draw cell based on type
+    // Draw cell based on type
     cmp     w2, #CELL_SNAKE
     b.eq    draw_snake_cell
     cmp     w2, #CELL_FOOD
     b.eq    draw_food_cell
     
-    # Empty cell
+    // Empty cell
     mov     x0, #STDOUT_FILENO
     adr     x1, empty_cell
     mov     x2, #1
@@ -953,13 +953,13 @@ draw_snake_cell:
     b       draw_cell_done
 
 draw_food_cell:
-    # Check food type
+    // Check food type
     adr     x0, food_type
     ldr     w3, [x0]
     cmp     w3, #FOOD_GOLDEN
     b.eq    draw_golden_food
     
-    # Draw normal food
+    // Draw normal food
     mov     x0, #STDOUT_FILENO
     adr     x1, food_cell
     mov     x2, food_cell_len
@@ -968,7 +968,7 @@ draw_food_cell:
     b       draw_cell_done
 
 draw_golden_food:
-    # Draw golden food
+    // Draw golden food
     mov     x0, #STDOUT_FILENO
     adr     x1, golden_food_cell
     mov     x2, golden_food_cell_len
@@ -980,7 +980,7 @@ draw_cell_done:
     b       draw_row_loop
 
 draw_row_done:
-    # Draw right border and newline
+    // Draw right border and newline
     mov     x0, #STDOUT_FILENO
     adr     x1, vertical_border_newline
     mov     x2, #2
@@ -991,10 +991,10 @@ draw_row_done:
     b       draw_grid_loop
 
 draw_grid_done:
-    # Draw bottom border
+    // Draw bottom border
     bl      draw_horizontal_border
     
-    # Draw controls
+    // Draw controls
     mov     x0, #STDOUT_FILENO
     adr     x1, controls_text
     mov     x2, controls_text_len
@@ -1004,26 +1004,26 @@ draw_grid_done:
     ldp     x29, x30, [sp], #16
     ret
 
-# Draw header with score
+// Draw header with score
 draw_header:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
-    # Draw title
+    // Draw title
     mov     x0, #STDOUT_FILENO
     adr     x1, game_title
     mov     x2, game_title_len
     mov     x8, #SYS_WRITE
     svc     #0
     
-    # Draw score
+    // Draw score
     mov     x0, #STDOUT_FILENO
     adr     x1, score_text
     mov     x2, score_text_len
     mov     x8, #SYS_WRITE
     svc     #0
     
-    # Convert score to string and display
+    // Convert score to string and display
     adr     x0, score
     ldr     w0, [x0]
     adr     x1, score_buffer
@@ -1035,7 +1035,7 @@ draw_header:
     mov     x8, #SYS_WRITE
     svc     #0
     
-    # Display speed level
+    // Display speed level
     mov     x0, #STDOUT_FILENO
     adr     x1, speed_text
     mov     x2, speed_text_len
@@ -1052,7 +1052,7 @@ draw_header:
     mov     x8, #SYS_WRITE
     svc     #0
     
-    # Display time played
+    // Display time played
     mov     x0, #STDOUT_FILENO
     adr     x1, time_text
     mov     x2, time_text_len
@@ -1071,14 +1071,14 @@ draw_header:
     mov     x8, #SYS_WRITE
     svc     #0
     
-    # Time unit
+    // Time unit
     mov     x0, #STDOUT_FILENO
     adr     x1, seconds_text
     mov     x2, seconds_text_len
     mov     x8, #SYS_WRITE
     svc     #0
     
-    # Newline
+    // Newline
     mov     x0, #STDOUT_FILENO
     adr     x1, newline
     mov     x2, #1
@@ -1088,19 +1088,19 @@ draw_header:
     ldp     x29, x30, [sp], #16
     ret
 
-# Draw horizontal border
+// Draw horizontal border
 draw_horizontal_border:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
-    # Corner
+    // Corner
     mov     x0, #STDOUT_FILENO
     adr     x1, corner_char
     mov     x2, #1
     mov     x8, #SYS_WRITE
     svc     #0
     
-    # Horizontal line
+    // Horizontal line
     mov     w19, #0
 border_loop:
     cmp     w19, #GRID_WIDTH
@@ -1116,7 +1116,7 @@ border_loop:
     b       border_loop
 
 border_done:
-    # Corner and newline
+    // Corner and newline
     mov     x0, #STDOUT_FILENO
     adr     x1, corner_newline
     mov     x2, #2
@@ -1126,16 +1126,16 @@ border_done:
     ldp     x29, x30, [sp], #16
     ret
 
-# Convert integer to string
+// Convert integer to string
 int_to_string:
-    # x0 = number, x1 = buffer, returns length in x0
+    // x0 = number, x1 = buffer, returns length in x0
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
     mov     x2, x1
     cbz     x0, zero_case
     
-    # Handle negative numbers
+    // Handle negative numbers
     mov     x3, #0
     cmp     x0, #0
     b.ge    positive_number
@@ -1159,7 +1159,7 @@ convert_loop:
     mov     x0, x6
     cbnz    x0, convert_loop
     
-    # Reverse the digits
+    // Reverse the digits
     sub     x1, x1, #1
 reverse_loop:
     cmp     x4, x1
@@ -1183,12 +1183,12 @@ zero_case:
     ldp     x29, x30, [sp], #16
     ret
 
-# Display game over message
+// Display game over message
 display_game_over:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
-    # Play game over sound
+    // Play game over sound
     bl      play_game_over_sound
     
     mov     x0, #STDOUT_FILENO
@@ -1197,7 +1197,7 @@ display_game_over:
     mov     x8, #SYS_WRITE
     svc     #0
     
-    # Display final score
+    // Display final score
     mov     x0, #STDOUT_FILENO
     adr     x1, final_score_text
     mov     x2, final_score_text_len
@@ -1215,14 +1215,14 @@ display_game_over:
     mov     x8, #SYS_WRITE
     svc     #0
     
-    # Display newline
+    // Display newline
     mov     x0, #STDOUT_FILENO
     adr     x1, newline
     mov     x2, #1
     mov     x8, #SYS_WRITE
     svc     #0
     
-    # Display food count
+    // Display food count
     mov     x0, #STDOUT_FILENO
     adr     x1, food_count_text
     mov     x2, food_count_text_len
@@ -1246,18 +1246,18 @@ display_game_over:
     mov     x8, #SYS_WRITE
     svc     #0
     
-    # Check for new records and save high scores
+    // Check for new records and save high scores
     bl      check_and_update_records
     
     ldp     x29, x30, [sp], #16
     ret
 
-# Display pause message
+// Display pause message
 display_pause_message:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
-    # Move cursor to bottom of screen
+    // Move cursor to bottom of screen
     mov     x0, #STDOUT_FILENO
     adr     x1, pause_text
     mov     x2, pause_text_len
@@ -1267,7 +1267,7 @@ display_pause_message:
     ldp     x29, x30, [sp], #16
     ret
 
-# Get current time
+// Get current time
 get_current_time:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
@@ -1280,14 +1280,14 @@ get_current_time:
     ldp     x29, x30, [sp], #16
     ret
 
-# Calculate elapsed time in seconds
+// Calculate elapsed time in seconds
 calculate_elapsed_time:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
     bl      get_current_time
     
-    # Load current time and start time
+    // Load current time and start time
     adr     x0, current_time
     adr     x1, game_start_time
     ldr     x2, [x0]
@@ -1295,24 +1295,24 @@ calculate_elapsed_time:
     
     sub     x2, x2, x3
     
-    # Subtract total paused time to get actual playing time
+    // Subtract total paused time to get actual playing time
     adr     x0, total_paused_time
     ldr     w4, [x0]
     sub     x2, x2, x4
     
-    # Store playing seconds (not total elapsed)
+    // Store playing seconds (not total elapsed)
     adr     x0, elapsed_seconds
     str     w2, [x0]
     
     ldp     x29, x30, [sp], #16
     ret
 
-# Calculate current speed level (1-10)
+// Calculate current speed level (1-10)
 calculate_speed_level:
     adr     x0, snake_length
     ldr     w0, [x0]
     
-    # Speed level = min(10, 1 + (length-3)/3)
+    // Speed level = min(10, 1 + (length-3)/3)
     sub     w0, w0, #INITIAL_SNAKE_LENGTH
     mov     w1, #3
     udiv    w0, w0, w1
@@ -1324,12 +1324,12 @@ calculate_speed_level:
     
     ret
 
-# Load high scores from file
+// Load high scores from file
 load_high_scores:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
-    # Try to open file for reading using openat
+    // Try to open file for reading using openat
     mov     x0, #AT_FDCWD
     adr     x1, high_score_file
     mov     x2, #O_RDONLY
@@ -1337,37 +1337,37 @@ load_high_scores:
     mov     x8, #SYS_OPENAT
     svc     #0
     
-    # If file doesn't exist (negative fd), set file_exists flag to false
+    // If file doesn't exist (negative fd), set file_exists flag to false
     cmp     x0, #0
     b.lt    set_no_file_flag
     
-    # Read high score data as text (up to 32 bytes)
+    // Read high score data as text (up to 32 bytes)
     mov     x19, x0
     adr     x1, high_score_buffer
     mov     x2, #32
     mov     x8, #SYS_READ
     svc     #0
     
-    # Store bytes read
+    // Store bytes read
     mov     x20, x0
     
-    # Close file
+    // Close file
     mov     x0, x19
     mov     x8, #SYS_CLOSE
     svc     #0
     
-    # Check if we read some data
+    // Check if we read some data
     cmp     x20, #0
     b.le    set_no_file_flag
     
-    # Debug: show what we read from file
+    // Debug: show what we read from file
     mov     x0, #STDOUT_FILENO
     adr     x1, debug_loaded_text
     mov     x2, debug_loaded_text_len
     mov     x8, #SYS_WRITE
     svc     #0
     
-    # Show the raw buffer content
+    // Show the raw buffer content
     mov     x0, #STDOUT_FILENO
     adr     x1, high_score_buffer
     mov     x2, #10
@@ -1380,11 +1380,11 @@ load_high_scores:
     mov     x8, #SYS_WRITE
     svc     #0
     
-    # Parse the text to extract high score
+    // Parse the text to extract high score
     adr     x0, high_score_buffer
     bl      parse_score_from_text
     
-    # Debug: show parsed high score
+    // Debug: show parsed high score
     mov     x0, #STDOUT_FILENO
     adr     x1, debug_parsed_text
     mov     x2, debug_parsed_text_len
@@ -1407,7 +1407,7 @@ load_high_scores:
     mov     x8, #SYS_WRITE
     svc     #0
     
-    # Set file exists flag to true
+    // Set file exists flag to true
     adr     x0, file_exists
     mov     w1, #1
     str     w1, [x0]
@@ -1415,11 +1415,11 @@ load_high_scores:
 
 
 set_no_file_flag:
-    # Mark that no high score file exists yet
+    // Mark that no high score file exists yet
     adr     x0, file_exists
     str     wzr, [x0]
     
-    # Initialize high score to 0
+    // Initialize high score to 0
     adr     x0, high_score
     str     wzr, [x0]
 
@@ -1427,32 +1427,32 @@ load_high_scores_done:
     ldp     x29, x30, [sp], #16
     ret
 
-# Save high scores to file
+// Save high scores to file
 save_high_scores:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
-    # Debug: Show what score we're saving
-    # mov     x0, #STDOUT_FILENO
-    # adr     x1, debug_score_text
-    # mov     x2, debug_score_text_len
-    # mov     x8, #SYS_WRITE
-    # svc     #0
+    // Debug: Show what score we're saving (commented out)
+    // mov     x0, #STDOUT_FILENO
+    // adr     x1, debug_score_text
+    // mov     x2, debug_score_text_len
+    // mov     x8, #SYS_WRITE
+    // svc     #0
     
-    # Convert high score to text first
+    // Convert high score to text first
     adr     x0, high_score
     ldr     w0, [x0]
     adr     x1, high_score_buffer
     bl      int_to_string
     
-    # Display the score we're saving (commented out)
-    # mov     x0, #STDOUT_FILENO
-    # adr     x1, high_score_buffer
-    # mov     x2, #10
-    # mov     x8, #SYS_WRITE
-    # svc     #0
+    // Display the score we're saving (commented out)
+    // mov     x0, #STDOUT_FILENO
+    // adr     x1, high_score_buffer
+    // mov     x2, #10
+    // mov     x8, #SYS_WRITE
+    // svc     #0
     
-    # Add newline
+    // Add newline
     adr     x0, high_score_buffer
     mov     x1, x0
 find_end:
@@ -1466,33 +1466,33 @@ add_newline:
     add     x1, x1, #1
     strb    wzr, [x1]
     
-    # Calculate string length
+    // Calculate string length
     sub     x20, x1, x0
     
-    # Debug: show what filename we're trying to create
-    # mov     x0, #STDOUT_FILENO
-    # adr     x1, debug_filename_text
-    # mov     x2, debug_filename_text_len
-    # mov     x8, #SYS_WRITE
-    # svc     #0
-    # 
-    # # Show the actual filename string
-    # mov     x0, #STDOUT_FILENO
-    # adr     x1, high_score_file
-    # mov     x2, #8
-    # mov     x8, #SYS_WRITE
-    # svc     #0
-    # 
-    # # Print newline
-    # mov     x0, #STDOUT_FILENO
-    # adr     x1, newline
-    # mov     x2, #1
-    # mov     x8, #SYS_WRITE
-    # svc     #0
+    // Debug: show what filename we're trying to create (commented out)
+    // mov     x0, #STDOUT_FILENO
+    // adr     x1, debug_filename_text
+    // mov     x2, debug_filename_text_len
+    // mov     x8, #SYS_WRITE
+    // svc     #0
+
+    // Show the actual filename string
+    // mov     x0, #STDOUT_FILENO
+    // adr     x1, high_score_file
+    // mov     x2, #8
+    // mov     x8, #SYS_WRITE
+    // svc     #0
     
-    # Try multiple file creation approaches
-    # Use openat system call
-    # openat(dirfd, pathname, flags, mode)
+    // Print newline
+    // mov     x0, #STDOUT_FILENO
+    // adr     x1, newline
+    // mov     x2, #1
+    // mov     x8, #SYS_WRITE
+    // svc     #0
+    
+    // Try multiple file creation approaches
+    // Use openat system call
+    // openat(dirfd, pathname, flags, mode)
     mov     x0, #AT_FDCWD
     adr     x1, high_score_file
     mov     x2, #577
@@ -1502,63 +1502,63 @@ add_newline:
     
 file_open_success:
     
-    # Debug: show file descriptor result
+    // Debug: show file descriptor result
     mov     x19, x0
-    # mov     x0, #STDOUT_FILENO
-    # adr     x1, debug_fd_text
-    # mov     x2, debug_fd_text_len
-    # mov     x8, #SYS_WRITE
-    # svc     #0
-    # 
-    # # Convert fd to string and display
-    # mov     w0, w19
-    # adr     x1, score_buffer
-    # bl      int_to_string
-    # mov     x0, #STDOUT_FILENO
-    # adr     x1, score_buffer
-    # mov     x2, #10
-    # mov     x8, #SYS_WRITE
-    # svc     #0
-    # 
-    # # Print newline
-    # mov     x0, #STDOUT_FILENO
-    # adr     x1, newline
-    # mov     x2, #1
-    # mov     x8, #SYS_WRITE
-    # svc     #0
+    // mov     x0, #STDOUT_FILENO
+    // adr     x1, debug_fd_text
+    // mov     x2, debug_fd_text_len
+    // mov     x8, #SYS_WRITE
+    // svc     #0
     
-    # Check for errors
+    // Convert fd to string and display
+    // mov     w0, w19
+    // adr     x1, score_buffer
+    // bl      int_to_string
+    // mov     x0, #STDOUT_FILENO
+    // adr     x1, score_buffer
+    // mov     x2, #10
+    // mov     x8, #SYS_WRITE
+    // svc     #0
+    
+    // Print newline
+    // mov     x0, #STDOUT_FILENO
+    // adr     x1, newline
+    // mov     x2, #1
+    // mov     x8, #SYS_WRITE
+    // svc     #0
+    
+    // Check for errors
     mov     x0, x19
     cmp     x0, #0
     b.lt    save_high_scores_error
     
-    # Write high score data as text
+    // Write high score data as text
     mov     x0, x19
     adr     x1, high_score_buffer
     mov     x2, x20
     mov     x8, #SYS_WRITE
     svc     #0
     
-    # Close file
+    // Close file
     mov     x0, x19
     mov     x8, #SYS_CLOSE
     svc     #0
     
-    # Check write result
+    // Check write result
     cmp     x0, #0
     b.lt    save_high_scores_error
     
-    # Success message (commented out for clean gameplay)
-    # mov     x0, #STDOUT_FILENO
-    # adr     x1, save_success_text
-    # mov     x2, save_success_text_len
-    # mov     x8, #SYS_WRITE
-    # svc     #0
+    // Success message (commented out for clean gameplay)
+    // mov     x0, #STDOUT_FILENO
+    // adr     x1, save_success_text
+    // mov     x2, save_success_text_len
+    // mov     x8, #SYS_WRITE
+    // svc     #0
     
     b       save_high_scores_done
 
 save_high_scores_error:
-    # Try alternative path in /tmp directory
+    // Try alternative path in /tmp directory
     adr     x0, high_score_file_tmp
     mov     x1, #O_WRONLY
     orr     x1, x1, #O_CREAT
@@ -1567,23 +1567,23 @@ save_high_scores_error:
     mov     x8, #SYS_OPENAT
     svc     #0
     
-    # Check if /tmp path worked
+    // Check if /tmp path worked
     cmp     x0, #0
     b.lt    save_high_scores_final_error
     
-    # Write to /tmp file
+    // Write to /tmp file
     mov     x19, x0
     adr     x1, high_score_buffer
     mov     x2, x20
     mov     x8, #SYS_WRITE
     svc     #0
     
-    # Close /tmp file
+    // Close /tmp file
     mov     x0, x19
     mov     x8, #SYS_CLOSE
     svc     #0
     
-    # Success with alternative path
+    // Success with alternative path
     mov     x0, #STDOUT_FILENO
     adr     x1, save_tmp_success_text
     mov     x2, save_tmp_success_text_len
@@ -1592,7 +1592,7 @@ save_high_scores_error:
     b       save_high_scores_done
 
 save_high_scores_final_error:
-    # Final error message
+    // Final error message
     mov     x0, #STDOUT_FILENO
     adr     x1, save_error_text
     mov     x2, save_error_text_len
@@ -1603,12 +1603,12 @@ save_high_scores_done:
     ldp     x29, x30, [sp], #16
     ret
 
-# Check for new records and update high scores
+// Check for new records and update high scores
 check_and_update_records:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
-    # Only check SCORE record (ignore food count and time for NEW RECORD message)
+    // Only check SCORE record (ignore food count and time for NEW RECORD message)
     adr     x0, score
     adr     x1, high_score  
     ldr     w2, [x0]
@@ -1616,17 +1616,17 @@ check_and_update_records:
     cmp     w2, w3
     b.le    check_records_done
     
-    # NEW HIGH SCORE! 
+    // NEW HIGH SCORE! 
     str     w2, [x1]
     bl      save_high_scores
     
-    # Only show message if file existed (had previous score to beat)
+    // Only show message if file existed (had previous score to beat)
     adr     x0, file_exists
     ldr     w0, [x0]
     cmp     w0, #1
     b.ne    check_records_done
     
-    # Show NEW RECORD message  
+    // Show NEW RECORD message  
     mov     x0, #STDOUT_FILENO
     adr     x1, new_record_text
     mov     x2, new_record_text_len
@@ -1639,12 +1639,12 @@ check_records_done:
     ldp     x29, x30, [sp], #16
     ret
 
-# Sound effects functions
+// Sound effects functions
 play_food_sound:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
-    # Try terminal bell first
+    // Try terminal bell first
     mov     x0, #STDOUT_FILENO
     adr     x1, bell_sound
     mov     x2, #1
@@ -1654,7 +1654,7 @@ play_food_sound:
     ldp     x29, x30, [sp], #16
     ret
 
-# Next function
+// Next function
     mov     x0, #STDOUT_FILENO
     adr     x1, score_buffer
     mov     x2, #10
@@ -1682,16 +1682,16 @@ play_food_sound:
     mov     x8, #SYS_WRITE
     svc     #0
     
-    # Restore values and do comparison
+    // Restore values and do comparison
     cmp     w22, w23
     b.le    check_food_record
     
-    # New high score
+    // New high score
     str     w22, [x21]
     mov     w19, #1
     
 check_food_record:
-    # Check food count record
+    // Check food count record
     adr     x0, food_count
     adr     x1, high_food_count
     ldr     w2, [x0]
@@ -1699,12 +1699,12 @@ check_food_record:
     cmp     w2, w3
     b.le    check_time_record
     
-    # New high food count
+    // New high food count
     str     w2, [x1]
     mov     w19, #1
     
 check_time_record:
-    # Check time record
+    // Check time record
     bl      calculate_elapsed_time
     adr     x0, elapsed_seconds
     adr     x1, longest_time
@@ -1713,12 +1713,12 @@ check_time_record:
     cmp     w2, w3
     b.le    save_records
     
-    # New time record
+    // New time record
     str     w2, [x1]
     mov     w19, #1
     
 save_records:
-    # Debug: show what w19 is
+    // Debug: show what w19 is
     mov     x0, #STDOUT_FILENO
     adr     x1, debug_w19_text
     mov     x2, debug_w19_text_len
@@ -1740,11 +1740,11 @@ save_records:
     mov     x8, #SYS_WRITE
     svc     #0
     
-    # If any new record, save and maybe display message
+    // If any new record, save and maybe display message
     cmp     w19, #1
     b.ne    check_records_done
     
-    # We have a new record - save it
+    // We have a new record - save it
     mov     x0, #STDOUT_FILENO
     adr     x1, debug_saving_text
     mov     x2, debug_saving_text_len
@@ -1753,13 +1753,13 @@ save_records:
     
     bl      save_high_scores
     
-    # Only display "NEW RECORD" if file existed before (had previous scores to beat)
+    // Only display "NEW RECORD" if file existed before (had previous scores to beat)
     adr     x0, file_exists
     ldr     w0, [x0]
     cmp     w0, #1
     b.ne    check_records_done
     
-    # Display NEW RECORD message
+    // Display NEW RECORD message
     mov     x0, #STDOUT_FILENO
     adr     x1, new_record_text
     mov     x2, new_record_text_len
@@ -1768,14 +1768,14 @@ save_records:
     
     bl      play_new_record_sound
     
-    # Try terminal bell first
+    // Try terminal bell first
     mov     x0, #STDOUT_FILENO
     adr     x1, bell_sound
     mov     x2, #1
     mov     x8, #SYS_WRITE
     svc     #0
     
-    # Force flush output
+    // Force flush output
     mov     x0, #STDOUT_FILENO
     mov     x1, #0
     mov     x8, #74
@@ -1788,7 +1788,7 @@ play_golden_food_sound:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
-    # Play two bells for golden food
+    // Play two bells for golden food
     bl      play_food_sound
     bl      play_food_sound
     
@@ -1799,7 +1799,7 @@ play_new_record_sound:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
-    # Play three bells for new record
+    // Play three bells for new record
     bl      play_food_sound
     bl      play_food_sound  
     bl      play_food_sound
@@ -1811,23 +1811,23 @@ play_game_over_sound:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
-    # Play game over sound
+    // Play game over sound
     bl      play_food_sound
     
     ldp     x29, x30, [sp], #16
     ret
 
-# Game sleep function with progressive speed
+// Game sleep function with progressive speed
 game_sleep:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
-    # Calculate sleep time based on snake length
-    # Base speed: 200ms, reduce by 5ms per segment, minimum 80ms
+    // Calculate sleep time based on snake length
+    // Base speed: 200ms, reduce by 5ms per segment, minimum 80ms
     adr     x0, snake_length
     ldr     w1, [x0]
     
-    # Calculate: max(80ms, 200ms - (length-3)*5ms)
+    // Calculate: max(80ms, 200ms - (length-3)*5ms)
     sub     w1, w1, #INITIAL_SNAKE_LENGTH
     mov     w2, #5
     mul     w1, w1, w2
@@ -1838,12 +1838,12 @@ game_sleep:
     cmp     w3, w4
     csel    w3, w4, w3, lt
     
-    # Convert milliseconds to nanoseconds
+    // Convert milliseconds to nanoseconds
     movz    w4, #0x86A0, lsl #0
     movk    w4, #0xF, lsl #16
     mul     w3, w3, w4
     
-    # Store in sleep_time structure
+    // Store in sleep_time structure
     adr     x0, sleep_time
     str     xzr, [x0]
     str     w3, [x0, #8]
@@ -1855,9 +1855,9 @@ game_sleep:
     ldp     x29, x30, [sp], #16
     ret
 
-# Parse score from text buffer
-# Input: x0 = buffer address
-# Output: Stores parsed score in high_score
+// Parse score from text buffer
+// Input: x0 = buffer address
+// Output: Stores parsed score in high_score
 parse_score_from_text:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
@@ -1869,27 +1869,27 @@ parse_score_from_text:
 parse_loop:
     ldrb    w4, [x1], #1
     
-    # Check for end of string or newline
+    // Check for end of string or newline
     cbz     w4, parse_done
     cmp     w4, #10
     b.eq    parse_done
     cmp     w4, #32
     b.eq    parse_done
     
-    # Check if character is digit (0-9)
+    // Check if character is digit (0-9)
     sub     w4, w4, #48
     cmp     w4, #0
     b.lt    parse_loop
     cmp     w4, #9
     b.gt    parse_loop
     
-    # Add digit to accumulator
+    // Add digit to accumulator
     mul     w2, w2, w3
     add     w2, w2, w4
     b       parse_loop
     
 parse_done:
-    # Store result in high_score
+    // Store result in high_score
     adr     x0, high_score
     str     w2, [x0]
     
@@ -1899,11 +1899,11 @@ parse_done:
 .data
 .align 3
 
-# Terminal settings
+// Terminal settings
 termios_orig:   .space 60
 termios_raw:    .space 60
 
-# Game state
+// Game state
 game_grid:      .space (GRID_WIDTH * GRID_HEIGHT)
 snake_body:     .space (MAX_SNAKE_LENGTH * 8)
 snake_length:   .word INITIAL_SNAKE_LENGTH
@@ -1916,20 +1916,20 @@ food_count:     .word 0
 game_paused:    .word 0
 quit_flag:      .word 0
 
-# Game statistics
+// Game statistics
 game_start_time: .space 16
 current_time:   .space 16
 pause_start_time: .space 16
 total_paused_time: .word 0
 elapsed_seconds: .word 0
 
-# High score data
+// High score data
 high_score:     .word 0
 high_food_count: .word 0
 longest_time:   .word 0
 file_exists:    .word 0
 
-# Input/output buffers
+// Input/output buffers
 input_buffer:   .space 4
 random_buffer:  .space 2
 score_buffer:   .space 12
@@ -1938,16 +1938,16 @@ time_buffer:    .space 12
 speed_buffer:   .space 12
 high_score_buffer: .space 32
 
-# High score file
+// High score file
 high_score_file: .asciz "file.txt"
 high_score_file_tmp: .asciz "/tmp/snake_high_score.txt"
 
-# Sleep timing
+// Sleep timing
 sleep_time:
     .quad 0
     .quad 200000000
 
-# ANSI escape sequences
+// ANSI escape sequences
 clear_screen_seq: .ascii "\x1b[2J"
 clear_screen_seq_len = . - clear_screen_seq
 
@@ -1960,7 +1960,7 @@ show_cursor_seq_len = . - show_cursor_seq
 move_cursor_home: .ascii "\x1b[1;1H"
 move_cursor_home_len = . - move_cursor_home
 
-# Game display characters
+// Game display characters
 snake_cell: .ascii "\x1b[42m \x1b[0m"
 snake_cell_len = . - snake_cell
 
@@ -1978,7 +1978,7 @@ vertical_border_newline: .ascii "|\n"
 corner_newline: .ascii "+\n"
 newline: .ascii "\n"
 
-# Game text
+// Game text
 game_title: .ascii "=== SNAKE GAME ===\n"
 game_title_len = . - game_title
 
@@ -2050,6 +2050,6 @@ debug_parsed_text_len = . - debug_parsed_text
 
 bell_sound: .ascii "\x07"
 
-# Alternative visual feedback when audio doesn't work
+// Alternative visual feedback when audio doesn't work
 flash_text: .ascii "\x1b[5m*BEEP*\x1b[25m"
 flash_text_len = . - flash_text
