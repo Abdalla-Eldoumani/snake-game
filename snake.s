@@ -44,6 +44,11 @@
 .equ MAX_SNAKE_LENGTH, 600
 .equ INITIAL_SNAKE_LENGTH, 3
 
+// Level constants
+.equ LEVEL_NORMAL, 1
+.equ LEVEL_NO_WALLS, 2
+.equ LEVEL_SUPER_FAST, 3
+
 // Direction constants
 .equ DIR_UP, 0
 .equ DIR_RIGHT, 1
@@ -80,7 +85,11 @@ _start:
     cmp     x0, #0
     b.ne    restore_and_exit
     
-    // Initialize game
+    // Show welcome screen and get level selection
+    bl      show_welcome_screen
+    bl      get_level_selection
+    
+    // Initialize game with selected level
     bl      init_game
     
     // Clear screen and hide cursor
@@ -152,6 +161,284 @@ exit_error:
 exit_program:
     mov     x8, #SYS_EXIT
     svc     #0
+
+// Show welcome screen
+show_welcome_screen:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    
+    // Clear screen
+    bl      clear_screen
+    
+    // Display welcome title
+    mov     x0, #STDOUT_FILENO
+    adr     x1, welcome_title
+    mov     x2, welcome_title_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    // Display level selection text
+    mov     x0, #STDOUT_FILENO
+    adr     x1, level_select_text
+    mov     x2, level_select_text_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    ldp     x29, x30, [sp], #16
+    ret
+
+// Get level selection from user
+get_level_selection:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    
+    // Initialize selected level to 1
+    adr     x0, current_level
+    mov     w1, #LEVEL_NORMAL
+    str     w1, [x0]
+    
+level_selection_loop:
+    // Clear any remaining input
+    bl      clear_input_buffer
+    
+    // Display level options with current selection indicator
+    bl      display_level_options
+    
+    // Get user input
+    bl      get_level_input
+    
+    // Check if selection is confirmed (ENTER pressed)
+    adr     x0, quit_flag
+    ldr     w1, [x0]
+    cmp     w1, #2  // Use 2 as confirmation flag
+    b.eq    level_selection_done
+    
+    b       level_selection_loop
+
+level_selection_done:
+    // Reset quit flag for game
+    adr     x0, quit_flag
+    mov     w1, #0
+    str     w1, [x0]
+    
+    ldp     x29, x30, [sp], #16
+    ret
+
+// Display level options with selection indicator
+display_level_options:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    
+    // Get current level
+    adr     x0, current_level
+    ldr     w19, [x0]
+    
+    // Display Level 1
+    cmp     w19, #LEVEL_NORMAL
+    b.ne    display_level_1_normal
+    
+    // Show indicator for Level 1
+    mov     x0, #STDOUT_FILENO
+    adr     x1, level_indicator
+    mov     x2, level_indicator_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    b       display_level_1_text
+
+display_level_1_normal:
+    mov     x0, #STDOUT_FILENO
+    adr     x1, clear_line
+    mov     x2, #3  // Just 3 spaces
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+display_level_1_text:
+    mov     x0, #STDOUT_FILENO
+    adr     x1, level_1_text
+    mov     x2, level_1_text_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    // Display Level 2
+    cmp     w19, #LEVEL_NO_WALLS
+    b.ne    display_level_2_normal
+    
+    mov     x0, #STDOUT_FILENO
+    adr     x1, level_indicator
+    mov     x2, level_indicator_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    b       display_level_2_text
+
+display_level_2_normal:
+    mov     x0, #STDOUT_FILENO
+    adr     x1, clear_line
+    mov     x2, #3
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+display_level_2_text:
+    mov     x0, #STDOUT_FILENO
+    adr     x1, level_2_text
+    mov     x2, level_2_text_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    // Display Level 3
+    cmp     w19, #LEVEL_SUPER_FAST
+    b.ne    display_level_3_normal
+    
+    mov     x0, #STDOUT_FILENO
+    adr     x1, level_indicator
+    mov     x2, level_indicator_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    b       display_level_3_text
+
+display_level_3_normal:
+    mov     x0, #STDOUT_FILENO
+    adr     x1, clear_line
+    mov     x2, #3
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+display_level_3_text:
+    mov     x0, #STDOUT_FILENO
+    adr     x1, level_3_text
+    mov     x2, level_3_text_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    // Display prompt
+    mov     x0, #STDOUT_FILENO
+    adr     x1, level_select_prompt
+    mov     x2, level_select_prompt_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    ldp     x29, x30, [sp], #16
+    ret
+
+// Get level selection input
+get_level_input:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    
+wait_for_input:
+    // Try to read input
+    mov     x0, #STDIN_FILENO
+    adr     x1, input_buffer
+    mov     x2, #1
+    mov     x8, #SYS_READ
+    svc     #0
+    
+    // Check if we got input
+    cmp     x0, #1
+    b.ne    wait_for_input
+    
+    // Get the character
+    adr     x0, input_buffer
+    ldrb    w0, [x0]
+    
+    // Check for confirmation (ENTER)
+    cmp     w0, #10
+    b.eq    confirm_selection
+    cmp     w0, #13
+    b.eq    confirm_selection
+    
+    // Check for up/down movement
+    cmp     w0, #'w'
+    b.eq    move_selection_up
+    cmp     w0, #'W'
+    b.eq    move_selection_up
+    cmp     w0, #'s'
+    b.eq    move_selection_down
+    cmp     w0, #'S'
+    b.eq    move_selection_down
+    
+    // Check for escape sequence (arrow keys)
+    cmp     w0, #0x1b
+    b.eq    handle_level_arrow_keys
+    
+    b       get_level_input_done
+    
+confirm_selection:
+    adr     x0, quit_flag
+    mov     w1, #2  // Use 2 as confirmation flag
+    str     w1, [x0]
+    b       get_level_input_done
+
+move_selection_up:
+    adr     x0, current_level
+    ldr     w1, [x0]
+    cmp     w1, #LEVEL_NORMAL
+    b.eq    wrap_to_level_3
+    sub     w1, w1, #1
+    str     w1, [x0]
+    b       get_level_input_done
+
+wrap_to_level_3:
+    mov     w1, #LEVEL_SUPER_FAST
+    str     w1, [x0]
+    b       get_level_input_done
+
+move_selection_down:
+    adr     x0, current_level
+    ldr     w1, [x0]
+    cmp     w1, #LEVEL_SUPER_FAST
+    b.eq    wrap_to_level_1
+    add     w1, w1, #1
+    str     w1, [x0]
+    b       get_level_input_done
+
+wrap_to_level_1:
+    mov     w1, #LEVEL_NORMAL
+    str     w1, [x0]
+    b       get_level_input_done
+
+handle_level_arrow_keys:
+    // Read next two characters of escape sequence
+    mov     x0, #STDIN_FILENO
+    adr     x1, input_buffer
+    mov     x2, #2
+    mov     x8, #SYS_READ
+    svc     #0
+    
+    cmp     x0, #2
+    b.ne    get_level_input_done
+    
+    adr     x0, input_buffer
+    ldrb    w1, [x0]
+    cmp     w1, #'['
+    b.ne    get_level_input_done
+    
+    ldrb    w1, [x0, #1]
+    cmp     w1, #'A'  // Up arrow
+    b.eq    move_selection_up
+    cmp     w1, #'B'  // Down arrow
+    b.eq    move_selection_down
+
+get_level_input_done:
+    ldp     x29, x30, [sp], #16
+    ret
+
+// Clear input buffer
+clear_input_buffer:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    
+clear_buffer_loop:
+    mov     x0, #STDIN_FILENO
+    adr     x1, input_buffer
+    mov     x2, #1
+    mov     x8, #SYS_READ
+    svc     #0
+    
+    cmp     x0, #1
+    b.eq    clear_buffer_loop
+    
+    ldp     x29, x30, [sp], #16
+    ret
 
 // Save original terminal settings
 save_terminal_settings:
@@ -598,7 +885,13 @@ check_collisions:
     ldr     w2, [x1]
     ldr     w3, [x1, #4]
     
-    // Check wall collisions
+    // Check current level for wall collision behavior
+    adr     x0, current_level
+    ldr     w4, [x0]
+    cmp     w4, #LEVEL_NO_WALLS
+    b.eq    handle_wall_wrapping
+    
+    // Normal wall collision detection (Level 1 and 3)
     cmp     w2, #0
     b.lt    collision_detected
     cmp     w2, #(GRID_WIDTH - 1)
@@ -607,6 +900,52 @@ check_collisions:
     b.lt    collision_detected
     cmp     w3, #(GRID_HEIGHT - 1)
     b.gt    collision_detected
+    b       check_self_collision
+
+handle_wall_wrapping:
+    // Level 2: Wrap around edges instead of collision
+    // Wrap X coordinate
+    cmp     w2, #0
+    b.lt    wrap_x_left
+    cmp     w2, #(GRID_WIDTH - 1)
+    b.gt    wrap_x_right
+    b       check_y_wrap
+
+wrap_x_left:
+    mov     w2, #(GRID_WIDTH - 1)
+    b       update_wrapped_position
+
+wrap_x_right:
+    mov     w2, #0
+    b       update_wrapped_position
+
+check_y_wrap:
+    // Wrap Y coordinate
+    cmp     w3, #0
+    b.lt    wrap_y_top
+    cmp     w3, #(GRID_HEIGHT - 1)
+    b.gt    wrap_y_bottom
+    b       check_self_collision
+
+wrap_y_top:
+    mov     w3, #(GRID_HEIGHT - 1)
+    b       update_wrapped_position
+
+wrap_y_bottom:
+    mov     w3, #0
+
+update_wrapped_position:
+    // Update the head position with wrapped coordinates
+    adr     x0, snake_head_index
+    ldr     w0, [x0]
+    adr     x1, snake_body
+    mov     w4, #8
+    mul     w0, w0, w4
+    add     x1, x1, x0
+    str     w2, [x1]
+    str     w3, [x1, #4]
+
+check_self_collision:
     
     // Check self collision
     mov     w4, #GRID_WIDTH
@@ -1035,7 +1374,25 @@ draw_header:
     mov     x8, #SYS_WRITE
     svc     #0
     
-    // Display speed level
+    // Display current level
+    mov     x0, #STDOUT_FILENO
+    adr     x1, level_display_text
+    mov     x2, level_display_text_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    adr     x0, current_level
+    ldr     w0, [x0]
+    adr     x1, speed_buffer
+    bl      int_to_string
+    
+    mov     x2, x0
+    mov     x0, #STDOUT_FILENO
+    adr     x1, speed_buffer
+    mov     x8, #SYS_WRITE
+    svc     #0
+    
+    // Display speed level  
     mov     x0, #STDOUT_FILENO
     adr     x1, speed_text
     mov     x2, speed_text_len
@@ -1822,7 +2179,13 @@ game_sleep:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
-    // Calculate sleep time based on snake length
+    // Check current level for speed adjustment
+    adr     x0, current_level
+    ldr     w0, [x0]
+    cmp     w0, #LEVEL_SUPER_FAST
+    b.eq    super_fast_speed
+    
+    // Normal speed calculation for Level 1 and 2
     // Base speed: 200ms, reduce by 5ms per segment, minimum 80ms
     adr     x0, snake_length
     ldr     w1, [x0]
@@ -1837,6 +2200,25 @@ game_sleep:
     mov     w4, #80
     cmp     w3, w4
     csel    w3, w4, w3, lt
+    b       apply_sleep_time
+
+super_fast_speed:
+    // Level 3: Super fast - much shorter sleep times
+    // Base speed: 60ms, reduce by 2ms per segment, minimum 30ms
+    adr     x0, snake_length
+    ldr     w1, [x0]
+    
+    sub     w1, w1, #INITIAL_SNAKE_LENGTH
+    mov     w2, #2
+    mul     w1, w1, w2
+    
+    mov     w3, #60
+    subs    w3, w3, w1
+    mov     w4, #30
+    cmp     w3, w4
+    csel    w3, w4, w3, lt
+
+apply_sleep_time:
     
     // Convert milliseconds to nanoseconds
     movz    w4, #0x86A0, lsl #0
@@ -1915,6 +2297,7 @@ score:          .word 0
 food_count:     .word 0
 game_paused:    .word 0
 quit_flag:      .word 0
+current_level:  .word LEVEL_NORMAL
 
 // Game statistics
 game_start_time: .space 16
@@ -2000,6 +2383,9 @@ food_count_text_len = . - food_count_text
 pause_text: .ascii "\n=== PAUSED - Press SPACE to continue ===\n"
 pause_text_len = . - pause_text
 
+level_display_text: .ascii " | Level: "
+level_display_text_len = . - level_display_text
+
 speed_text: .ascii " | Speed Level: "
 speed_text_len = . - speed_text
 
@@ -2011,6 +2397,30 @@ seconds_text_len = . - seconds_text
 
 new_record_text: .ascii "\n*** NEW RECORD! ***\n"
 new_record_text_len = . - new_record_text
+
+welcome_title: .ascii "\n\n=== WELCOME TO SNAKE GAME ===\n\n"
+welcome_title_len = . - welcome_title
+
+level_select_text: .ascii "SELECT LEVEL:\n\n"
+level_select_text_len = . - level_select_text
+
+level_1_text: .ascii "  1. Normal Mode (Classic Snake)\n"
+level_1_text_len = . - level_1_text
+
+level_2_text: .ascii "  2. No Walls Mode (Snake wraps around edges)\n"
+level_2_text_len = . - level_2_text
+
+level_3_text: .ascii "  3. Super Fast Mode (High speed challenge)\n\n"
+level_3_text_len = . - level_3_text
+
+level_select_prompt: .ascii "Use UP/DOWN arrow keys or W/S to select, ENTER to confirm\n"
+level_select_prompt_len = . - level_select_prompt
+
+level_indicator: .ascii ">>>"
+level_indicator_len = . - level_indicator
+
+clear_line: .ascii "\x1b[2K\r"
+clear_line_len = . - clear_line
 
 save_success_text: .ascii "(High score saved to file.txt)\n"
 save_success_text_len = . - save_success_text
