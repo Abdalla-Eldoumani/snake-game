@@ -94,33 +94,61 @@ This approach bypasses line buffering and provides real-time input response esse
 
 ### Compilation Process
 ```bash
-# Standard build
+# Standard build (ARM64 systems only)
 make
 
-# GCC-based build (recommended)
+# GCC-based build (recommended for ARM64)
 make gcc
+
+# Cross-compile and run with QEMU (x86_64 systems)
+make qemu-run
 
 # Debug build with symbols
 make debug
 ```
 
 ### Build Targets
-- `all`: Standard assembly and linking
-- `gcc`: GCC-based compilation for enhanced compatibility
+- `all`: Standard assembly and linking (ARM64 only)
+- `gcc`: GCC-based compilation for enhanced compatibility (ARM64 only)
+- `qemu-run`: Cross-compile and run with QEMU emulation (x86_64 systems)
 - `clean`: Remove build artifacts
-- `run`: Build and execute in single command
+- `run`: Build and execute in single command (ARM64 only)
 - `install`: System-wide installation to `/usr/local/bin`
 
 ### Architecture Verification
 ```bash
-./build-check.sh    # Verify ARM64 compatibility and dependencies
+make check-arch     # Check current architecture and build recommendations
+```
+
+### Cross-Platform Support
+For x86_64 systems (Intel/AMD processors), the game can be run using QEMU emulation:
+
+**Prerequisites:**
+```bash
+sudo apt update
+sudo apt install -y qemu-user qemu-user-static
+sudo apt install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+```
+
+**Quick Start on x86_64:**
+```bash
+make qemu-run       # Automatically cross-compiles and runs with QEMU
 ```
 
 ## Usage Instructions
 
 ### Running the Game
+
+**On ARM64 systems:**
 ```bash
-./snake
+make run            # Build and run natively
+# or
+./snake            # Run directly if already built
+```
+
+**On x86_64 systems:**
+```bash
+make qemu-run      # Cross-compile and run with QEMU
 ```
 
 ### Controls
