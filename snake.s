@@ -1698,10 +1698,10 @@ load_high_scores:
     cmp     x0, #0
     b.lt    set_no_file_flag
     
-    // Read high score data as text (up to 32 bytes)
+    // Read high score data as text (up to 128 bytes)
     mov     x19, x0
     adr     x1, high_score_buffer
-    mov     x2, #32
+    mov     x2, #128
     mov     x8, #SYS_READ
     svc     #0
     
@@ -1717,52 +1717,8 @@ load_high_scores:
     cmp     x20, #0
     b.le    set_no_file_flag
     
-    // Debug: show what we read from file
-    mov     x0, #STDOUT_FILENO
-    adr     x1, debug_loaded_text
-    mov     x2, debug_loaded_text_len
-    mov     x8, #SYS_WRITE
-    svc     #0
-    
-    // Show the raw buffer content
-    mov     x0, #STDOUT_FILENO
-    adr     x1, high_score_buffer
-    mov     x2, #10
-    mov     x8, #SYS_WRITE
-    svc     #0
-    
-    mov     x0, #STDOUT_FILENO
-    adr     x1, newline
-    mov     x2, #1
-    mov     x8, #SYS_WRITE
-    svc     #0
-    
-    // Parse the text to extract high score
-    adr     x0, high_score_buffer
-    bl      parse_score_from_text
-    
-    // Debug: show parsed high score
-    mov     x0, #STDOUT_FILENO
-    adr     x1, debug_parsed_text
-    mov     x2, debug_parsed_text_len
-    mov     x8, #SYS_WRITE
-    svc     #0
-    
-    adr     x0, high_score
-    ldr     w0, [x0]
-    adr     x1, speed_buffer
-    bl      int_to_string
-    mov     x0, #STDOUT_FILENO
-    adr     x1, speed_buffer
-    mov     x2, #10
-    mov     x8, #SYS_WRITE
-    svc     #0
-    
-    mov     x0, #STDOUT_FILENO
-    adr     x1, newline
-    mov     x2, #1
-    mov     x8, #SYS_WRITE
-    svc     #0
+    // Parse the multi-level high score format
+    bl      parse_multilevel_scores
     
     // Set file exists flag to true
     adr     x0, file_exists
@@ -1776,11 +1732,115 @@ set_no_file_flag:
     adr     x0, file_exists
     str     wzr, [x0]
     
-    // Initialize high score to 0
-    adr     x0, high_score
+    // Initialize all level high scores to 0
+    adr     x0, high_score_level1
+    str     wzr, [x0]
+    adr     x0, high_score_level2
+    str     wzr, [x0]
+    adr     x0, high_score_level3
     str     wzr, [x0]
 
 load_high_scores_done:
+    ldp     x29, x30, [sp], #16
+    ret
+
+// Build multi-level file format in high_score_buffer
+// Format: "LEVEL1:123\nLEVEL2:456\nLEVEL3:789\n"
+// Returns total length in x0
+build_multilevel_file_format:
+    stp     x29, x30, [sp, #-32]!
+    mov     x29, sp
+    stp     x19, x20, [sp, #16]    // Preserve x19, x20
+    
+    adr     x19, high_score_buffer  // Current write position
+    mov     x20, #0                 // Total length counter
+    
+    // Add LEVEL1: label
+    adr     x0, level1_label
+    mov     w1, #level1_label_len
+    bl      copy_string_to_buffer
+    
+    // Add Level 1 score
+    adr     x0, high_score_level1
+    ldr     w0, [x0]
+    adr     x1, speed_buffer  // Temporary buffer for conversion
+    bl      int_to_string
+    mov     w1, w0            // Length returned by int_to_string
+    adr     x0, speed_buffer
+    bl      copy_string_to_buffer
+    
+    // Add newline
+    mov     w0, #10
+    strb    w0, [x19], #1
+    add     x20, x20, #1
+    
+    // Add LEVEL2: label
+    adr     x0, level2_label
+    mov     w1, #level2_label_len
+    bl      copy_string_to_buffer
+    
+    // Add Level 2 score - Load address into temporary register first
+    adr     x21, high_score_level2
+    ldr     w0, [x21]
+    adr     x1, speed_buffer
+    bl      int_to_string
+    mov     w1, w0
+    adr     x0, speed_buffer
+    bl      copy_string_to_buffer
+    
+    // Add newline
+    mov     w0, #10
+    strb    w0, [x19], #1
+    add     x20, x20, #1
+    
+    // Add LEVEL3: label
+    adr     x0, level3_label
+    mov     w1, #level3_label_len
+    bl      copy_string_to_buffer
+    
+    // Add Level 3 score - Load address into temporary register first
+    adr     x21, high_score_level3
+    ldr     w0, [x21]
+    adr     x1, speed_buffer
+    bl      int_to_string
+    mov     w1, w0
+    adr     x0, speed_buffer
+    bl      copy_string_to_buffer
+    
+    // Add final newline
+    mov     w0, #10
+    strb    w0, [x19], #1
+    add     x20, x20, #1
+    
+    // Null terminate
+    strb    wzr, [x19]
+    
+    // Return length in x0
+    mov     x0, x20
+    
+    ldp     x19, x20, [sp, #16]    // Restore x19, x20
+    ldp     x29, x30, [sp], #32
+    ret
+
+// Copy string from x0 to buffer at x19, length w1
+// Updates x19 and x20 (total length counter)
+copy_string_to_buffer:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    
+    mov     w2, #0  // Counter
+    
+copy_loop:
+    cmp     w2, w1
+    b.ge    copy_done
+    
+    ldrb    w3, [x0, x2]
+    strb    w3, [x19], #1
+    add     w2, w2, #1
+    add     x20, x20, #1
+    b       copy_loop
+
+copy_done:
     ldp     x29, x30, [sp], #16
     ret
 
@@ -1789,42 +1849,11 @@ save_high_scores:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
-    // Debug: Show what score we're saving (commented out)
-    // mov     x0, #STDOUT_FILENO
-    // adr     x1, debug_score_text
-    // mov     x2, debug_score_text_len
-    // mov     x8, #SYS_WRITE
-    // svc     #0
+    // Build the multi-level file format in the buffer
+    bl      build_multilevel_file_format
     
-    // Convert high score to text first
-    adr     x0, high_score
-    ldr     w0, [x0]
-    adr     x1, high_score_buffer
-    bl      int_to_string
-    
-    // Display the score we're saving (commented out)
-    // mov     x0, #STDOUT_FILENO
-    // adr     x1, high_score_buffer
-    // mov     x2, #10
-    // mov     x8, #SYS_WRITE
-    // svc     #0
-    
-    // Add newline
-    adr     x0, high_score_buffer
-    mov     x1, x0
-find_end:
-    ldrb    w2, [x1]
-    cbz     w2, add_newline
-    add     x1, x1, #1
-    b       find_end
-add_newline:
-    mov     w2, #10
-    strb    w2, [x1]
-    add     x1, x1, #1
-    strb    wzr, [x1]
-    
-    // Calculate string length
-    sub     x20, x1, x0
+    // x0 now contains the total length of the formatted data
+    mov     x20, x0  // Store length in x20 for later use
     
     // Debug: show what filename we're trying to create (commented out)
     // mov     x0, #STDOUT_FILENO
@@ -1960,24 +1989,50 @@ save_high_scores_done:
     ldp     x29, x30, [sp], #16
     ret
 
-// Check for new records and update high scores
+// Check for new records and update high scores (level-specific)
 check_and_update_records:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
-    // Only check SCORE record (ignore food count and time for NEW RECORD message)
+    // Get current score
     adr     x0, score
-    adr     x1, high_score  
-    ldr     w2, [x0]
-    ldr     w3, [x1]
-    cmp     w2, w3
+    ldr     w19, [x0]  // w19 = current score
+    
+    // Get current level and determine which high score to check
+    adr     x0, current_level
+    ldr     w0, [x0]
+    
+    // Get appropriate level high score address
+    cmp     w0, #LEVEL_NORMAL
+    b.eq    check_level1_record
+    cmp     w0, #LEVEL_NO_WALLS
+    b.eq    check_level2_record
+    cmp     w0, #LEVEL_SUPER_FAST
+    b.eq    check_level3_record
+    b       check_records_done  // Unknown level, skip
+
+check_level1_record:
+    adr     x20, high_score_level1
+    b       compare_and_update
+
+check_level2_record:
+    adr     x20, high_score_level2
+    b       compare_and_update
+
+check_level3_record:
+    adr     x20, high_score_level3
+
+compare_and_update:
+    // Compare current score with level-specific high score
+    ldr     w21, [x20]  // w21 = current high score for this level
+    cmp     w19, w21
     b.le    check_records_done
     
-    // NEW HIGH SCORE! 
-    str     w2, [x1]
+    // NEW HIGH SCORE for this level!
+    str     w19, [x20]
     bl      save_high_scores
     
-    // Only show message if file existed (had previous score to beat)
+    // Only show message if file existed (had previous scores to beat)
     adr     x0, file_exists
     ldr     w0, [x0]
     cmp     w0, #1
@@ -2272,9 +2327,166 @@ parse_loop:
     
 parse_done:
     // Store result in high_score
-    adr     x0, high_score
+    adr     x0, high_score_level1
     str     w2, [x0]
     
+    ldp     x29, x30, [sp], #16
+    ret
+
+// Parse multi-level score format from buffer
+// Format: "LEVEL1:123\nLEVEL2:456\nLEVEL3:789\n"
+parse_multilevel_scores:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    
+    // Initialize all scores to 0
+    adr     x0, high_score_level1
+    str     wzr, [x0]
+    adr     x0, high_score_level2
+    str     wzr, [x0]
+    adr     x0, high_score_level3
+    str     wzr, [x0]
+    
+    // Parse each level entry
+    adr     x19, high_score_buffer  // x19 = current position in buffer
+    
+parse_next_level:
+    // Check for end of buffer
+    ldrb    w0, [x19]
+    cbz     w0, parse_multilevel_done
+    
+    // Check for LEVEL1:
+    adr     x1, level1_label
+    mov     w2, #level1_label_len
+    bl      compare_string
+    cmp     x0, #1
+    b.eq    parse_level1_score
+    
+    // Check for LEVEL2:
+    adr     x1, level2_label
+    mov     w2, #level2_label_len
+    bl      compare_string
+    cmp     x0, #1
+    b.eq    parse_level2_score
+    
+    // Check for LEVEL3:
+    adr     x1, level3_label
+    mov     w2, #level3_label_len
+    bl      compare_string
+    cmp     x0, #1
+    b.eq    parse_level3_score
+    
+    // Skip to next line if no match
+    bl      skip_to_next_line
+    b       parse_next_level
+
+parse_level1_score:
+    add     x19, x19, #level1_label_len
+    bl      parse_number_from_position
+    adr     x1, high_score_level1
+    str     w0, [x1]
+    bl      skip_to_next_line
+    b       parse_next_level
+
+parse_level2_score:
+    add     x19, x19, #level2_label_len
+    bl      parse_number_from_position
+    adr     x1, high_score_level2
+    str     w0, [x1]
+    bl      skip_to_next_line
+    b       parse_next_level
+
+parse_level3_score:
+    add     x19, x19, #level3_label_len
+    bl      parse_number_from_position
+    adr     x1, high_score_level3
+    str     w0, [x1]
+    bl      skip_to_next_line
+    b       parse_next_level
+
+parse_multilevel_done:
+    ldp     x29, x30, [sp], #16
+    ret
+
+// Compare string at x19 with string at x1 (length w2)
+// Returns 1 in x0 if match, 0 if no match
+compare_string:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    
+    mov     x3, x19  // Current buffer position
+    mov     x4, #0   // Counter
+    
+compare_loop:
+    cmp     w4, w2
+    b.ge    compare_match
+    
+    ldrb    w5, [x3, x4]
+    ldrb    w6, [x1, x4]
+    cmp     w5, w6
+    b.ne    compare_no_match
+    
+    add     w4, w4, #1
+    b       compare_loop
+
+compare_match:
+    mov     x0, #1
+    b       compare_done
+
+compare_no_match:
+    mov     x0, #0
+
+compare_done:
+    ldp     x29, x30, [sp], #16
+    ret
+
+// Parse number from current position x19
+// Returns number in w0
+parse_number_from_position:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    
+    mov     w0, #0
+    mov     w1, #10
+    
+parse_number_loop:
+    ldrb    w2, [x19], #1
+    
+    // Check for end of number (newline, space, null)
+    cbz     w2, parse_number_done
+    cmp     w2, #10
+    b.eq    parse_number_done
+    cmp     w2, #32
+    b.eq    parse_number_done
+    
+    // Check if digit
+    sub     w2, w2, #48  // Convert ASCII to digit
+    cmp     w2, #0
+    b.lt    parse_number_done
+    cmp     w2, #9
+    b.gt    parse_number_done
+    
+    mul     w0, w0, w1
+    add     w0, w0, w2
+    b       parse_number_loop
+
+parse_number_done:
+    ldp     x29, x30, [sp], #16
+    ret
+
+// Skip to next line from current position x19
+skip_to_next_line:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    
+skip_loop:
+    ldrb    w0, [x19], #1
+    cbz     w0, skip_done
+    cmp     w0, #10
+    b.eq    skip_done
+    b       skip_loop
+
+skip_done:
     ldp     x29, x30, [sp], #16
     ret
 
@@ -2306,8 +2518,10 @@ pause_start_time: .space 16
 total_paused_time: .word 0
 elapsed_seconds: .word 0
 
-// High score data
-high_score:     .word 0
+// High score data (level-specific)
+high_score_level1: .word 0
+high_score_level2: .word 0
+high_score_level3: .word 0
 high_food_count: .word 0
 longest_time:   .word 0
 file_exists:    .word 0
@@ -2319,11 +2533,21 @@ score_buffer:   .space 12
 food_buffer:    .space 12
 time_buffer:    .space 12
 speed_buffer:   .space 12
-high_score_buffer: .space 32
+high_score_buffer: .space 128
 
 // High score file
 high_score_file: .asciz "file.txt"
 high_score_file_tmp: .asciz "/tmp/snake_high_score.txt"
+
+// Level labels for file format
+level1_label: .ascii "LEVEL1:"
+level1_label_len = . - level1_label
+
+level2_label: .ascii "LEVEL2:"
+level2_label_len = . - level2_label
+
+level3_label: .ascii "LEVEL3:"
+level3_label_len = . - level3_label
 
 // Sleep timing
 sleep_time:
