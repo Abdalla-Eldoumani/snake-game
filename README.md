@@ -241,7 +241,7 @@ This project demonstrates several key computer systems concepts:
 ## Features
 
 ### Multi-Level High Score System
-The game includes a comprehensive persistent high score system:
+The game includes a comprehensive persistent high score system with advanced corruption protection:
 - Separate high scores tracked for each of the three game levels
 - Scores are automatically saved to `file.txt` in structured format when new records are achieved
 - File format: `LEVEL1:score\nLEVEL2:score\nLEVEL3:score\n`
@@ -249,6 +249,9 @@ The game includes a comprehensive persistent high score system:
 - Only actual record-breaking scores for the current level trigger saves and "NEW RECORD" messages
 - Level-specific score validation and persistence
 - Uses ARM64-optimized file I/O with proper error handling
+- **Advanced Corruption Protection**: File-based backup system prevents cross-level score corruption
+- **Defensive Preservation**: Automatic detection and recovery from memory corruption during saves
+- **Robust Error Handling**: Multiple fallback mechanisms ensure score integrity across all levels
 
 ## Potential Enhancements
 
