@@ -1748,9 +1748,19 @@ load_high_scores_done:
 // Format: "LEVEL1:123\nLEVEL2:456\nLEVEL3:789\n"
 // Returns total length in x0
 build_multilevel_file_format:
-    stp     x29, x30, [sp, #-32]!
+    stp     x29, x30, [sp, #-64]!
     mov     x29, sp
     stp     x19, x20, [sp, #16]    // Preserve x19, x20
+    stp     x21, x22, [sp, #32]    // Preserve x21, x22
+    stp     x23, x24, [sp, #48]    // Preserve x23, x24
+    
+    // Load all scores into preserved registers first
+    adr     x0, high_score_level1
+    ldr     w21, [x0]              // w21 = Level 1 score
+    adr     x0, high_score_level2
+    ldr     w22, [x0]              // w22 = Level 2 score  
+    adr     x0, high_score_level3
+    ldr     w23, [x0]              // w23 = Level 3 score
     
     adr     x19, high_score_buffer  // Current write position
     mov     x20, #0                 // Total length counter
@@ -1760,9 +1770,8 @@ build_multilevel_file_format:
     mov     w1, #level1_label_len
     bl      copy_string_to_buffer
     
-    // Add Level 1 score
-    adr     x0, high_score_level1
-    ldr     w0, [x0]
+    // Add Level 1 score (use preserved w21)
+    mov     w0, w21               // Use preserved Level 1 score
     adr     x1, speed_buffer  // Temporary buffer for conversion
     bl      int_to_string
     mov     w1, w0            // Length returned by int_to_string
@@ -1779,9 +1788,23 @@ build_multilevel_file_format:
     mov     w1, #level2_label_len
     bl      copy_string_to_buffer
     
-    // Add Level 2 score - Load address into temporary register first
-    adr     x21, high_score_level2
-    ldr     w0, [x21]
+    // Add Level 2 score - use backup if corrupted
+    mov     w0, w22               // Use preserved Level 2 score
+    
+    // If Level 2 is 0 and we're NOT in Level 2, use backup
+    cmp     w0, #0
+    b.ne    level2_score_ok
+    
+    adr     x25, current_level
+    ldr     w25, [x25]
+    cmp     w25, #LEVEL_NO_WALLS
+    b.eq    level2_score_ok       // We're in Level 2, 0 might be legitimate
+    
+    // We're in Level 1 or Level 3 and Level 2 is 0 - use backup
+    adr     x25, level2_backup
+    ldr     w0, [x25]
+    
+level2_score_ok:
     adr     x1, speed_buffer
     bl      int_to_string
     mov     w1, w0
@@ -1798,9 +1821,8 @@ build_multilevel_file_format:
     mov     w1, #level3_label_len
     bl      copy_string_to_buffer
     
-    // Add Level 3 score - Load address into temporary register first
-    adr     x21, high_score_level3
-    ldr     w0, [x21]
+    // Add Level 3 score (use preserved w23)
+    mov     w0, w23               // Use preserved Level 3 score
     adr     x1, speed_buffer
     bl      int_to_string
     mov     w1, w0
@@ -1819,7 +1841,9 @@ build_multilevel_file_format:
     mov     x0, x20
     
     ldp     x19, x20, [sp, #16]    // Restore x19, x20
-    ldp     x29, x30, [sp], #32
+    ldp     x21, x22, [sp, #32]    // Restore x21, x22
+    ldp     x23, x24, [sp, #48]    // Restore x23, x24
+    ldp     x29, x30, [sp], #64
     ret
 
 // Copy string from x0 to buffer at x19, length w1
@@ -1844,10 +1868,111 @@ copy_done:
     ldp     x29, x30, [sp], #16
     ret
 
+// Find string in buffer
+// x19 = buffer, x1 = string to find, w2 = string length
+// Returns x0 = pointer to found string or 0 if not found
+find_string_in_buffer:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    
+    mov     x3, x19  // Current search position
+    
+find_loop:
+    ldrb    w4, [x3]
+    cbz     w4, find_not_found  // End of buffer
+    
+    // Compare string at current position
+    mov     x5, x3   // Position to compare
+    mov     x6, x1   // String to find
+    mov     w7, #0   // Counter
+    
+find_compare_loop:
+    cmp     w7, w2
+    b.ge    find_found  // Found complete match
+    
+    ldrb    w8, [x5, x7]
+    ldrb    w9, [x6, x7]
+    cmp     w8, w9
+    b.ne    find_next_char
+    
+    add     w7, w7, #1
+    b       find_compare_loop
+    
+find_next_char:
+    add     x3, x3, #1
+    b       find_loop
+    
+find_found:
+    mov     x0, x3  // Return pointer to found string
+    b       find_done
+    
+find_not_found:
+    mov     x0, #0  // Return null
+    
+find_done:
+    ldp     x29, x30, [sp], #16
+    ret
+
+// Preserve Level 2 value from existing file
+preserve_level2_from_file:
+    stp     x29, x30, [sp, #-32]!
+    mov     x29, sp
+    stp     x19, x20, [sp, #16]
+    
+    // Try to read the current file
+    mov     x0, #AT_FDCWD
+    adr     x1, high_score_file
+    mov     x2, #0  // O_RDONLY
+    mov     x8, #SYS_OPENAT
+    svc     #0
+    
+    // Check if file opened successfully
+    cmp     x0, #0
+    b.lt    preserve_level2_done  // File doesn't exist, nothing to preserve
+    
+    mov     x19, x0  // Save file descriptor
+    
+    // Read file content
+    mov     x0, x19
+    adr     x1, high_score_buffer
+    mov     x2, #128
+    mov     x8, #SYS_READ
+    svc     #0
+    
+    // Close file
+    mov     x0, x19
+    mov     x8, #SYS_CLOSE
+    svc     #0
+    
+    // Look for "LEVEL2:" in the buffer and extract the number
+    adr     x19, high_score_buffer
+    adr     x1, level2_label
+    mov     w2, #level2_label_len
+    bl      find_string_in_buffer
+    
+    cmp     x0, #0
+    b.eq    preserve_level2_done  // LEVEL2: not found
+    
+    // x0 points to start of "LEVEL2:", skip to the number
+    add     x19, x0, #level2_label_len
+    bl      parse_number_from_position
+    
+    // Store the extracted Level 2 value in backup
+    adr     x1, level2_backup
+    str     w0, [x1]
+    
+preserve_level2_done:
+    ldp     x19, x20, [sp, #16]
+    ldp     x29, x30, [sp], #32
+    ret
+
 // Save high scores to file
 save_high_scores:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
+    
+    // CRITICAL FIX: Preserve Level 2 from current file before any operations
+    bl      preserve_level2_from_file
     
     // Build the multi-level file format in the buffer
     bl      build_multilevel_file_format
@@ -1991,8 +2116,21 @@ save_high_scores_done:
 
 // Check for new records and update high scores (level-specific)
 check_and_update_records:
-    stp     x29, x30, [sp, #-16]!
+    stp     x29, x30, [sp, #-48]!
     mov     x29, sp
+    stp     x22, x23, [sp, #16]
+    stp     x24, x25, [sp, #32]
+    
+    // Save all high scores before any operations
+    adr     x0, high_score_level1
+    ldr     w22, [x0]  // Save Level 1 
+    adr     x0, high_score_level2
+    ldr     w23, [x0]  // Save Level 2
+    // Also save Level 2 to backup location
+    adr     x0, level2_backup
+    str     w23, [x0]  // Store Level 2 in backup
+    adr     x0, high_score_level3
+    ldr     w24, [x0]  // Save Level 3
     
     // Get current score
     adr     x0, score
@@ -2021,6 +2159,7 @@ check_level2_record:
 
 check_level3_record:
     adr     x20, high_score_level3
+    b       compare_and_update
 
 compare_and_update:
     // Compare current score with level-specific high score
@@ -2048,7 +2187,34 @@ compare_and_update:
     bl      play_new_record_sound
 
 check_records_done:
-    ldp     x29, x30, [sp], #16
+    // Only restore scores that weren't supposed to be updated
+    adr     x0, current_level
+    ldr     w0, [x0]
+    
+    // If we're not in Level 1, restore Level 1
+    cmp     w0, #LEVEL_NORMAL
+    b.eq    skip_level1_restore
+    adr     x1, high_score_level1
+    str     w22, [x1]
+skip_level1_restore:
+    
+    // If we're not in Level 2, restore Level 2
+    cmp     w0, #LEVEL_NO_WALLS
+    b.eq    skip_level2_restore
+    adr     x1, high_score_level2
+    str     w23, [x1]
+skip_level2_restore:
+    
+    // If we're not in Level 3, restore Level 3
+    cmp     w0, #LEVEL_SUPER_FAST
+    b.eq    skip_level3_restore
+    adr     x1, high_score_level3
+    str     w24, [x1]
+skip_level3_restore:
+    
+    ldp     x22, x23, [sp, #16]
+    ldp     x24, x25, [sp, #32]
+    ldp     x29, x30, [sp], #48
     ret
 
 // Sound effects functions
@@ -2525,6 +2691,7 @@ high_score_level3: .word 0
 high_food_count: .word 0
 longest_time:   .word 0
 file_exists:    .word 0
+level2_backup:  .word 0   // Backup storage for Level 2 score
 
 // Input/output buffers
 input_buffer:   .space 4
@@ -2681,6 +2848,9 @@ debug_loaded_text_len = . - debug_loaded_text
 
 debug_parsed_text: .ascii "Parsed high score: "
 debug_parsed_text_len = . - debug_parsed_text
+
+debug_level2_msg: .ascii "DEBUG Level2 = "
+debug_level2_msg_len = . - debug_level2_msg
 
 bell_sound: .ascii "\x07"
 
