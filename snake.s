@@ -49,6 +49,9 @@
 .equ LEVEL_NO_WALLS, 2
 .equ LEVEL_SUPER_FAST, 3
 
+// Score constants
+.equ MAX_SCORE, 65535
+
 // Direction constants
 .equ DIR_UP, 0
 .equ DIR_RIGHT, 1
@@ -1017,8 +1020,22 @@ golden_food_eaten:
 add_score:
     adr     x0, score
     ldr     w1, [x0]
+    
+    // Check for potential overflow
+    mov     w3, #MAX_SCORE
+    sub     w4, w3, w1  // w4 = MAX_SCORE - current_score
+    cmp     w2, w4      // Compare points_to_add with remaining capacity
+    b.le    safe_add    // If points_to_add <= remaining, safe to add
+    
+    // Would overflow, clamp to MAX_SCORE
+    str     w3, [x0]
+    b       add_score_done
+    
+safe_add:
     add     w1, w1, w2
     str     w1, [x0]
+    
+add_score_done:
     
     adr     x0, food_count
     ldr     w1, [x0]
@@ -2486,12 +2503,32 @@ parse_loop:
     cmp     w4, #9
     b.gt    parse_loop
     
-    // Add digit to accumulator
+    // Check for potential overflow before adding digit
+    mov     w5, #MAX_SCORE
+    udiv    w6, w5, w3      // w6 = MAX_SCORE / 10 (max safe value before multiply)
+    cmp     w2, w6
+    b.gt    clamp_to_max    // If current > max_safe, clamp to max
+    
+    // Safe to multiply by 10
     mul     w2, w2, w3
+    sub     w6, w5, w2      // w6 = MAX_SCORE - (current * 10)  
+    cmp     w4, w6          // Compare digit with remaining capacity
+    b.le    safe_digit_add  // If digit <= remaining, safe to add
+    
+clamp_to_max:
+    mov     w2, #MAX_SCORE
+    b       parse_loop
+    
+safe_digit_add:
     add     w2, w2, w4
     b       parse_loop
     
 parse_done:
+    // Ensure final result doesn't exceed MAX_SCORE
+    mov     w5, #MAX_SCORE
+    cmp     w2, w5
+    csel    w2, w2, w5, le  // w2 = min(w2, MAX_SCORE)
+    
     // Store result in high_score
     adr     x0, high_score_level1
     str     w2, [x0]
