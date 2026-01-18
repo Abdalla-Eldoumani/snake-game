@@ -1,8 +1,16 @@
-# Snake Game Implementation in ARMv8 Assembly
+# Snake Game - ARM64 Assembly
 
-This project implements the classic Snake game entirely in ARMv8 (AArch64) assembly language for Linux systems with a comprehensive multi-level gameplay system. The implementation demonstrates low-level system programming concepts including direct system call usage, terminal I/O control, memory management without standard library functions, real-time user input handling, and multi-level game state management.
+Snake game written in ARM64 assembly for Linux. Has 4 game modes, power-ups, lives, and saves high scores.
 
-The game runs natively on 64-bit ARM processors and showcases fundamental computer architecture principles through practical application development with three distinct gameplay modes.
+```
+    ███████ ███    ██  █████  ██   ██ ███████
+    ██      ████   ██ ██   ██ ██  ██  ██
+    ███████ ██ ██  ██ ███████ █████   █████
+         ██ ██  ██ ██ ██   ██ ██  ██  ██
+    ███████ ██   ████ ██   ██ ██   ██ ███████
+
+           ~ Classic Arcade Game ~
+```
 
 ## Technical Specifications
 
@@ -99,169 +107,67 @@ The program implements raw terminal mode to capture individual keystrokes:
 
 This approach bypasses line buffering and provides real-time input response essential for interactive gameplay.
 
-## Build System
+## Run It
 
-### Compilation Process
+**On x86_64:**
 ```bash
-# Standard build (ARM64 systems only)
-make
-
-# GCC-based build (recommended for ARM64)
-make gcc
-
-# Cross-compile and run with QEMU (x86_64 systems)
-make qemu-run
-
-# Debug build with symbols
-make debug
+sudo apt install qemu-user qemu-user-static gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+aarch64-linux-gnu-as -o snake.o snake.s
+aarch64-linux-gnu-ld -o snake snake.o
+qemu-aarch64 ./snake
 ```
 
-### Build Targets
-- `all`: Standard assembly and linking (ARM64 only)
-- `gcc`: GCC-based compilation for enhanced compatibility (ARM64 only)
-- `qemu-run`: Cross-compile and run with QEMU emulation (x86_64 systems)
-- `clean`: Remove build artifacts
-- `run`: Build and execute in single command (ARM64 only)
-- `install`: System-wide installation to `/usr/local/bin`
-
-### Architecture Verification
+**On ARM64 (Raspberry Pi, etc):**
 ```bash
-make check-arch     # Check current architecture and build recommendations
+make run
 ```
 
-### Cross-Platform Support
-For x86_64 systems (Intel/AMD processors), the game can be run using QEMU emulation:
+## Controls
 
-**Prerequisites:**
-```bash
-sudo apt update
-sudo apt install -y qemu-user qemu-user-static
-sudo apt install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+**Menu:** Arrow keys or W/S to move, ENTER to select, Q to quit
+
+**Game:** Arrow keys or WASD to move, SPACE to pause, Q to quit
+
+**Game Over:** R to restart, Q for menu
+
+## Game Modes
+
+- **CLASSIC** - Hit a wall, lose a life
+- **ENDLESS** - Walls wrap around
+- **SPEED** - Everything moves faster
+- **MAZE** - Obstacles on the field
+
+## Power-ups
+
+10% chance to spawn after eating food:
+- Blue `~` = Slow motion (shows countdown)
+- Purple `-` = Shrinks your snake
+
+## Lives
+
+You get 3 lives. Screen flashes red when you die. Score keeps going until all lives gone.
+
+## High Scores
+
+Saved to `file.txt`, one score per level. Shows on the menu.
+
+## Files
+
+```
+snake.s              - The source code of the game
+Makefile             - Build commands
+file.txt             - High scores
+QEMU_SETUP_GUIDE.md  - Setup help for x86_64
 ```
 
-**Quick Start on x86_64:**
+## Build Commands
+
 ```bash
-make qemu-run       # Automatically cross-compiles and runs with QEMU
+make              # Build (ARM64 only)
+make run          # Build and run (ARM64 only)
+make qemu-run     # Build and run with QEMU (x86_64)
+make clean        # Delete build files
 ```
-
-## Usage Instructions
-
-### Running the Game
-
-**On ARM64 systems:**
-```bash
-make run            # Build and run natively
-# or
-./snake            # Run directly if already built
-```
-
-**On x86_64 systems:**
-```bash
-make qemu-run      # Cross-compile and run with QEMU
-```
-
-### Controls
-
-**Level Selection:**
-- **↑/W**: Navigate up in level menu
-- **↓/S**: Navigate down in level menu
-- **ENTER**: Confirm level selection and start game
-
-**In-Game:**
-- **W/↑**: Move up
-- **A/←**: Move left  
-- **S/↓**: Move down
-- **D/→**: Move right
-- **SPACE**: Pause/Unpause game
-- **Q**: Quit game
-
-### Game Levels
-
-**Level 1 - Normal Mode:**
-- Classic Snake gameplay with wall collisions
-- Standard game speed with progressive acceleration
-- Snake dies when hitting screen boundaries
-
-**Level 2 - No Walls Mode:**
-- Snake wraps around screen edges instead of dying
-- Boundary collisions transport snake to opposite side
-- Same speed progression as Normal Mode
-
-**Level 3 - Super Fast Mode:**
-- High-speed challenge with accelerated timing
-- Faster base speed and quicker acceleration
-- Standard wall collision rules apply
-
-### Game Rules
-- Snake moves continuously in current direction
-- Eating food increases score and snake length
-- Direction changes are queued and processed at next game tick
-- Level-specific collision behavior (walls vs. wrapping)
-- High scores are automatically saved per level to `file.txt`
-- "NEW RECORD" message displays for level-specific record-breaking scores
-
-## Performance Characteristics
-
-### Timing Analysis
-- **Frame Rate**: 5 FPS (200ms per frame) for Levels 1-2, 16+ FPS (60ms per frame) for Level 3
-- **Input Latency**: <50ms typical response time across all levels
-- **Memory Usage**: 6KB static allocation with level-specific data structures
-- **CPU Usage**: Minimal (single-threaded, event-driven)
-
-### Scalability Considerations
-- Grid size configurable via constants (`GRID_WIDTH`, `GRID_HEIGHT`)
-- Maximum snake length: 600 segments
-- Game speed adjustable per level via timing constants
-- Level system expandable with additional game modes
-
-## Testing and Verification
-
-### Functional Testing
-The implementation has been validated on:
-- Raspberry Pi 4 (Cortex-A72)
-- AWS Graviton2 instances
-- Apple Silicon under Linux virtualization
-
-### Edge Case Handling
-- Rapid direction changes (input queuing)
-- Food spawning collision avoidance
-- Terminal resize graceful degradation
-- Signal handling for clean shutdown
-
-## Educational Value
-
-This project demonstrates several key computer systems concepts:
-
-1. **Assembly Language Programming**: Register management, instruction encoding, calling conventions
-2. **Operating System Interface**: System calls, kernel interaction, resource management  
-3. **I/O Programming**: Terminal control, non-blocking input, escape sequence processing
-4. **Real-time Systems**: Timing constraints, input responsiveness, frame rate consistency
-5. **Memory Management**: Static allocation, data structure design, address calculation
-
-## Features
-
-### Multi-Level High Score System
-The game includes a comprehensive persistent high score system with advanced corruption protection:
-- Separate high scores tracked for each of the three game levels
-- Scores are automatically saved to `file.txt` in structured format when new records are achieved
-- File format: `LEVEL1:score\nLEVEL2:score\nLEVEL3:score\n`
-- File is created automatically if it doesn't exist
-- Only actual record-breaking scores for the current level trigger saves and "NEW RECORD" messages
-- Level-specific score validation and persistence
-- Uses ARM64-optimized file I/O with proper error handling
-- **Advanced Corruption Protection**: File-based backup system prevents cross-level score corruption
-- **Defensive Preservation**: Automatic detection and recovery from memory corruption during saves
-- **Robust Error Handling**: Multiple fallback mechanisms ensure score integrity across all levels
-
-## Potential Enhancements
-
-Future development could incorporate:
-- Additional game levels with unique mechanics (speed challenges, obstacle courses, etc.)
-- Network multiplayer via socket system calls
-- Audio feedback using ALSA or OSS interfaces
-- Graphics acceleration through framebuffer access
-- Performance profiling and optimization
-- Advanced statistics tracking (time played per level, level completion rates)
 
 ## References
 
@@ -272,4 +178,4 @@ Future development could incorporate:
 
 ## License
 
-This educational project is distributed under the MIT License for academic and learning purposes.
+MIT
