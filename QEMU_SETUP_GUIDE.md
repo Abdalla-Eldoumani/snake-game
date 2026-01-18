@@ -2,81 +2,100 @@
 
 This Snake game is written in ARMv8 (AArch64) assembly language, which means it's designed to run on ARM64 processors. If you're using a typical Windows/Linux system with an Intel or AMD processor (x86_64), you'll need to use QEMU emulation to run the game.
 
-## Prerequisites
+## Quick Start
 
-- WSL (Windows Subsystem for Linux) or any Linux distribution
-- Terminal with sudo access
+```bash
+sudo apt update
+sudo apt install -y qemu-user qemu-user-static gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+```
 
-## Setup Instructions
+Then build and run:
 
-### 1. Check Your Architecture
+```bash
+aarch64-linux-gnu-as -o snake.o snake.s
+aarch64-linux-gnu-ld -o snake snake.o
+qemu-aarch64 ./snake
+```
 
-First, verify that you need emulation:
+Or just:
+
+```bash
+make qemu-run
+```
+
+## Check If You Need This
 
 ```bash
 uname -m
 ```
 
-If this shows `x86_64` or `amd64`, continue with this guide. If it shows `aarch64` or `arm64`, you can compile and run the game directly without QEMU.
+- `x86_64` = You need QEMU (this guide)
+- `aarch64` = You don't need QEMU, just run `make run`
 
-### 2. Install QEMU and ARM64 Tools
+## Controls
 
-Open your terminal and run:
+**Menu**
+- Arrow keys or W/S = Move up/down
+- ENTER = Start
+- Q = Quit
 
+**Playing**
+- Arrow keys or WASD = Move
+- SPACE = Pause
+- Q = Quit to menu
+
+**Game Over**
+- R = Restart
+- Q = Back to menu
+
+## Game Modes
+
+1. CLASSIC - Walls kill you
+2. ENDLESS - Walls wrap around
+3. SPEED - Faster gameplay
+4. MAZE - Dodge obstacles
+
+## Fixes
+
+**"command not found: qemu-aarch64"**
 ```bash
-# Update package list
-sudo apt update
-
-# Install QEMU ARM64 emulator
-sudo apt install -y qemu-user qemu-user-static
-
-# Install ARM64 cross-compilation tools
-sudo apt install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+sudo apt install qemu-user qemu-user-static
 ```
 
-### 3. Build the Game
-
-Navigate to the directory containing `snake.s` and run:
-
+**"command not found: aarch64-linux-gnu-as"**
 ```bash
-# Assemble the ARM64 code
-aarch64-linux-gnu-as -o snake.o snake.s
-
-# Link the object file
-aarch64-linux-gnu-ld -o snake snake.o
+sudo apt install binutils-aarch64-linux-gnu
 ```
 
-Alternatively, if a Makefile is present:
-
+**Terminal broken after crash**
 ```bash
-# Use the cross-compiler with make
-make CC=aarch64-linux-gnu-gcc AS=aarch64-linux-gnu-as LD=aarch64-linux-gnu-ld
+reset
 ```
 
-### 4. Run the Game
+**High scores all 0**
 
-Execute the game through QEMU:
+Run the game from the folder with file.txt.
 
-```bash
-qemu-aarch64 ./snake
+## WSL Notes
+
+Windows paths in WSL:
+```
+C:\Users\You\snake-game
+```
+becomes:
+```
+/mnt/c/Users/You/snake-game
 ```
 
-## Game Controls
+Use Windows Terminal for best results.
 
-- **W/↑**: Move up
-- **A/←**: Move left
-- **S/↓**: Move down
-- **D/→**: Move right
-- **SPACE**: Pause/Unpause game
-- **Q**: Quit game
+## Check Your Setup
 
-## Troubleshooting
-
-### Terminal Display Issues
-If the game display appears corrupted, ensure your terminal supports ANSI escape sequences. Most modern terminals (Windows Terminal, Ubuntu Terminal) support this by default.
-
-### Performance
-The game runs through emulation, so there might be a slight performance overhead compared to native execution. However, for a Snake game, this should be negligible.
+```bash
+qemu-aarch64 --version
+aarch64-linux-gnu-as --version
+file snake  # Should say "ARM aarch64"
+```
 
 ## Notes
 
