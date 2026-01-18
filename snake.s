@@ -189,14 +189,220 @@ show_welcome_screen:
     
     // Clear screen
     bl      clear_screen
-    
-    // Display welcome title
+
+    // Initialize animation position
+    adr     x0, anim_snake_x
+    mov     w1, #-4
+    str     w1, [x0]
+
+    ldp     x29, x30, [sp], #16
+    ret
+
+// Draw one frame of animated logo (called from level selection loop)
+draw_animated_logo_frame:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    stp     x19, x20, [sp, #-16]!
+    stp     x21, x22, [sp, #-16]!
+
+    // Get current snake position
+    adr     x0, anim_snake_x
+    ldr     w19, [x0]               // x19 = snake head X position
+
+    // Move cursor home
     mov     x0, #STDOUT_FILENO
-    adr     x1, welcome_title
-    mov     x2, welcome_title_len
+    adr     x1, move_cursor_home
+    mov     x2, move_cursor_home_len
     mov     x8, #SYS_WRITE
     svc     #0
 
+    // Output 2 newlines for spacing at top
+    mov     x0, #STDOUT_FILENO
+    adr     x1, anim_newline
+    mov     x2, anim_newline_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    mov     x0, #STDOUT_FILENO
+    adr     x1, anim_newline
+    mov     x2, anim_newline_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+    // Draw each logo row with glow effect
+    // Row 1
+    adr     x20, logo_row_1
+    mov     x21, logo_row_1_len
+    bl      draw_logo_row_with_glow
+
+    // Row 2
+    adr     x20, logo_row_2
+    mov     x21, logo_row_2_len
+    bl      draw_logo_row_with_glow
+
+    // Row 3
+    adr     x20, logo_row_3
+    mov     x21, logo_row_3_len
+    bl      draw_logo_row_with_glow
+
+    // Row 4
+    adr     x20, logo_row_4
+    mov     x21, logo_row_4_len
+    bl      draw_logo_row_with_glow
+
+    // Row 5
+    adr     x20, logo_row_5
+    mov     x21, logo_row_5_len
+    bl      draw_logo_row_with_glow
+
+    // Output subtitle
+    mov     x0, #STDOUT_FILENO
+    adr     x1, logo_subtitle
+    mov     x2, logo_subtitle_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+    // Advance snake position
+    adr     x0, anim_snake_x
+    ldr     w1, [x0]
+    add     w1, w1, #1
+
+    // Wrap around when reaching end
+    cmp     w1, #56
+    b.lt    anim_no_wrap
+    mov     w1, #-4                 // Reset to start
+anim_no_wrap:
+    str     w1, [x0]
+
+    ldp     x21, x22, [sp], #16
+    ldp     x19, x20, [sp], #16
+    ldp     x29, x30, [sp], #16
+    ret
+
+// Draw a logo row with glow effect based on snake position
+draw_logo_row_with_glow:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    stp     x23, x24, [sp, #-16]!
+    stp     x25, x26, [sp, #-16]!
+
+    mov     x23, x20                // x23 = current position in row
+    mov     x24, x21                // x24 = remaining length
+    mov     w25, #0                 // x25 = current column (character index)
+
+    // Glow zone: snake_x - 2 to snake_x + 5
+    sub     w26, w19, #2            // x26 = glow start
+
+anim_row_loop:
+    cbz     x24, anim_row_done
+
+    // Get current byte
+    ldrb    w0, [x23]
+
+    // Check if this is a UTF-8 multi-byte character (█ is 3 bytes)
+    cmp     w0, #0xE2               // UTF-8 block chars start with 0xE2
+    b.eq    anim_handle_utf8
+
+    // Single byte character (space or ASCII)
+    // Check if current column is in glow zone
+    cmp     w25, w26                // Compare with glow start
+    b.lt    anim_output_green
+
+    add     w1, w26, #8             // Glow end = glow start + 8
+    cmp     w25, w1
+    b.gt    anim_output_green
+
+    // In glow zone - output white
+    mov     x0, #STDOUT_FILENO
+    adr     x1, anim_color_white
+    mov     x2, anim_color_white_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    b       anim_output_char
+
+anim_output_green:
+    // Not in glow zone - output green
+    mov     x0, #STDOUT_FILENO
+    adr     x1, anim_color_green
+    mov     x2, anim_color_green_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+anim_output_char:
+    // Output the character
+    mov     x0, #STDOUT_FILENO
+    mov     x1, x23
+    mov     x2, #1
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+    // Reset color
+    mov     x0, #STDOUT_FILENO
+    adr     x1, anim_color_reset
+    mov     x2, anim_color_reset_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+    add     x23, x23, #1
+    sub     x24, x24, #1
+    add     w25, w25, #1
+    b       anim_row_loop
+
+anim_handle_utf8:
+    // Handle 3-byte UTF-8 character (█)
+    // Check if current column is in glow zone
+    cmp     w25, w26
+    b.lt    anim_output_green_utf8
+
+    add     w1, w26, #8
+    cmp     w25, w1
+    b.gt    anim_output_green_utf8
+
+    // In glow zone - output white
+    mov     x0, #STDOUT_FILENO
+    adr     x1, anim_color_white
+    mov     x2, anim_color_white_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    b       anim_output_utf8
+
+anim_output_green_utf8:
+    // Not in glow zone - output green
+    mov     x0, #STDOUT_FILENO
+    adr     x1, anim_color_green
+    mov     x2, anim_color_green_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+anim_output_utf8:
+    // Output all 3 bytes of UTF-8 character
+    mov     x0, #STDOUT_FILENO
+    mov     x1, x23
+    mov     x2, #3
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+    // Reset color
+    mov     x0, #STDOUT_FILENO
+    adr     x1, anim_color_reset
+    mov     x2, anim_color_reset_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+    add     x23, x23, #3            // Advance 3 bytes
+    sub     x24, x24, #3
+    add     w25, w25, #1            // But only 1 character column
+    b       anim_row_loop
+
+anim_row_done:
+    // Output newline
+    mov     x0, #STDOUT_FILENO
+    adr     x1, anim_newline
+    mov     x2, anim_newline_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+    ldp     x25, x26, [sp], #16
+    ldp     x23, x24, [sp], #16
     ldp     x29, x30, [sp], #16
     ret
 
@@ -204,44 +410,152 @@ show_welcome_screen:
 get_level_selection:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
-    
+
     // Initialize selected level to 1
     adr     x0, current_level
     mov     w1, #LEVEL_NORMAL
     str     w1, [x0]
-    
-level_selection_loop:
-    // Clear any remaining input
+
+    // Clear confirmation flag
+    adr     x0, quit_flag
+    str     wzr, [x0]
+
+    // Clear any buffered input
     bl      clear_input_buffer
-    
+
+level_selection_loop:
+    // Draw animated logo frame (advances animation position)
+    bl      draw_animated_logo_frame
+
     // Display level options with current selection indicator
     bl      display_level_options
-    
-    // Get user input
-    bl      get_level_input
-    
-    // Check if selection is confirmed (ENTER pressed)
-    adr     x0, quit_flag
+
+    // Try to read input (non-blocking)
+    mov     x0, #STDIN_FILENO
+    adr     x1, input_buffer
+    mov     x2, #1
+    mov     x8, #SYS_READ
+    svc     #0
+
+    // Check if we got input
+    cmp     x0, #1
+    b.ne    level_selection_sleep
+
+    // Got input - process it
+    adr     x0, input_buffer
+    ldrb    w0, [x0]
+
+    // Check for confirmation (ENTER)
+    cmp     w0, #10
+    b.eq    level_confirm_selection
+    cmp     w0, #13
+    b.eq    level_confirm_selection
+
+    // Check for up/down movement
+    cmp     w0, #'w'
+    b.eq    level_move_up
+    cmp     w0, #'W'
+    b.eq    level_move_up
+    cmp     w0, #'s'
+    b.eq    level_move_down
+    cmp     w0, #'S'
+    b.eq    level_move_down
+
+    // Check for quick quit (Q key)
+    cmp     w0, #'q'
+    b.eq    level_quick_quit
+    cmp     w0, #'Q'
+    b.eq    level_quick_quit
+
+    // Check for escape sequence (arrow keys)
+    cmp     w0, #0x1b
+    b.eq    level_handle_arrows
+
+    b       level_selection_sleep
+
+level_move_up:
+    adr     x0, current_level
     ldr     w1, [x0]
-    cmp     w1, #2  // Use 2 as confirmation flag
-    b.eq    level_selection_done
-    
-    b       level_selection_loop
-
-level_selection_done:
-    // Reset quit flag for game
-    adr     x0, quit_flag
-    mov     w1, #0
+    cmp     w1, #LEVEL_NORMAL
+    b.eq    level_wrap_to_quit
+    sub     w1, w1, #1
     str     w1, [x0]
+    b       level_selection_sleep
 
+level_wrap_to_quit:
+    adr     x0, current_level
+    mov     w1, #LEVEL_QUIT
+    str     w1, [x0]
+    b       level_selection_sleep
+
+level_move_down:
+    adr     x0, current_level
+    ldr     w1, [x0]
+    cmp     w1, #LEVEL_QUIT
+    b.eq    level_wrap_to_normal
+    add     w1, w1, #1
+    str     w1, [x0]
+    b       level_selection_sleep
+
+level_wrap_to_normal:
+    adr     x0, current_level
+    mov     w1, #LEVEL_NORMAL
+    str     w1, [x0]
+    b       level_selection_sleep
+
+level_handle_arrows:
+    // Read next two bytes for arrow key sequence
+    mov     x0, #STDIN_FILENO
+    adr     x1, input_buffer
+    mov     x2, #1
+    mov     x8, #SYS_READ
+    svc     #0
+    cmp     x0, #1
+    b.ne    level_selection_sleep
+
+    mov     x0, #STDIN_FILENO
+    adr     x1, input_buffer
+    mov     x2, #1
+    mov     x8, #SYS_READ
+    svc     #0
+    cmp     x0, #1
+    b.ne    level_selection_sleep
+
+    adr     x0, input_buffer
+    ldrb    w0, [x0]
+
+    cmp     w0, #'A'                // Up arrow
+    b.eq    level_move_up
+    cmp     w0, #'B'                // Down arrow
+    b.eq    level_move_down
+
+    b       level_selection_sleep
+
+level_quick_quit:
+    adr     x0, current_level
+    mov     w1, #LEVEL_QUIT
+    str     w1, [x0]
+    // Fall through to confirm
+
+level_confirm_selection:
     // Check if quit was selected
     adr     x0, current_level
     ldr     w1, [x0]
     cmp     w1, #LEVEL_QUIT
     b.eq    menu_quit_selected
 
+    // Selection confirmed - exit loop
     ldp     x29, x30, [sp], #16
     ret
+
+level_selection_sleep:
+    // Sleep for 60ms (animation frame rate)
+    adr     x0, anim_sleep_time
+    mov     x1, #0
+    mov     x8, #SYS_NANOSLEEP
+    svc     #0
+
+    b       level_selection_loop
 
 menu_quit_selected:
     // Restore terminal and exit cleanly
@@ -489,122 +803,6 @@ display_quit_text:
     mov     x8, #SYS_WRITE
     svc     #0
 
-    ldp     x29, x30, [sp], #16
-    ret
-
-// Get level selection input
-get_level_input:
-    stp     x29, x30, [sp, #-16]!
-    mov     x29, sp
-    
-wait_for_input:
-    // Try to read input
-    mov     x0, #STDIN_FILENO
-    adr     x1, input_buffer
-    mov     x2, #1
-    mov     x8, #SYS_READ
-    svc     #0
-    
-    // Check if we got input
-    cmp     x0, #1
-    b.ne    wait_for_input
-    
-    // Get the character
-    adr     x0, input_buffer
-    ldrb    w0, [x0]
-    
-    // Check for confirmation (ENTER)
-    cmp     w0, #10
-    b.eq    confirm_selection
-    cmp     w0, #13
-    b.eq    confirm_selection
-    
-    // Check for up/down movement
-    cmp     w0, #'w'
-    b.eq    move_selection_up
-    cmp     w0, #'W'
-    b.eq    move_selection_up
-    cmp     w0, #'s'
-    b.eq    move_selection_down
-    cmp     w0, #'S'
-    b.eq    move_selection_down
-    
-    // Check for quick quit (Q key)
-    cmp     w0, #'q'
-    b.eq    quick_quit_selected
-    cmp     w0, #'Q'
-    b.eq    quick_quit_selected
-
-    // Check for escape sequence (arrow keys)
-    cmp     w0, #0x1b
-    b.eq    handle_level_arrow_keys
-    
-    b       get_level_input_done
-
-quick_quit_selected:
-    // Set selection to QUIT and confirm
-    adr     x0, current_level
-    mov     w1, #LEVEL_QUIT
-    str     w1, [x0]
-    b       confirm_selection
-    
-confirm_selection:
-    adr     x0, quit_flag
-    mov     w1, #2  // Use 2 as confirmation flag
-    str     w1, [x0]
-    b       get_level_input_done
-
-move_selection_up:
-    adr     x0, current_level
-    ldr     w1, [x0]
-    cmp     w1, #LEVEL_NORMAL
-    b.eq    wrap_to_quit
-    sub     w1, w1, #1
-    str     w1, [x0]
-    b       get_level_input_done
-
-wrap_to_quit:
-    mov     w1, #LEVEL_QUIT
-    str     w1, [x0]
-    b       get_level_input_done
-
-move_selection_down:
-    adr     x0, current_level
-    ldr     w1, [x0]
-    cmp     w1, #LEVEL_QUIT
-    b.eq    wrap_to_level_1
-    add     w1, w1, #1
-    str     w1, [x0]
-    b       get_level_input_done
-
-wrap_to_level_1:
-    mov     w1, #LEVEL_NORMAL
-    str     w1, [x0]
-    b       get_level_input_done
-
-handle_level_arrow_keys:
-    // Read next two characters of escape sequence
-    mov     x0, #STDIN_FILENO
-    adr     x1, input_buffer
-    mov     x2, #2
-    mov     x8, #SYS_READ
-    svc     #0
-    
-    cmp     x0, #2
-    b.ne    get_level_input_done
-    
-    adr     x0, input_buffer
-    ldrb    w1, [x0]
-    cmp     w1, #'['
-    b.ne    get_level_input_done
-    
-    ldrb    w1, [x0, #1]
-    cmp     w1, #'A'  // Up arrow
-    b.eq    move_selection_up
-    cmp     w1, #'B'  // Down arrow
-    b.eq    move_selection_down
-
-get_level_input_done:
     ldp     x29, x30, [sp], #16
     ret
 
@@ -3870,6 +4068,61 @@ sleep_time:
     .quad 0
     .quad 200000000
 
+// Animation data structures
+anim_snake_x:      .word -4          // Snake head X position (-4 to 52)
+anim_frame:        .word 0           // Frame counter for timing
+anim_skipped:      .word 0           // Flag to skip animation
+
+// Animation timing (60ms per frame)
+anim_sleep_time:
+    .quad 0
+    .quad 60000000    // 60ms in nanoseconds
+
+// Cursor positioning for animation
+cursor_row_3: .ascii "\x1b[3;1H"
+cursor_row_3_len = . - cursor_row_3
+
+// Snake animated character (green body, yellow head)
+snake_anim_head: .ascii "\x1b[93m@\x1b[0m"   // Yellow head
+snake_anim_head_len = . - snake_anim_head
+
+snake_anim_body: .ascii "\x1b[92mo\x1b[0m"   // Green body
+snake_anim_body_len = . - snake_anim_body
+
+// Color codes for animation glow effect
+anim_color_white:  .ascii "\x1b[97m\x1b[1m"   // Bright white (glow)
+anim_color_white_len = . - anim_color_white
+
+anim_color_green:  .ascii "\x1b[92m\x1b[1m"   // Original green
+anim_color_green_len = . - anim_color_green
+
+anim_color_reset:  .ascii "\x1b[0m"
+anim_color_reset_len = . - anim_color_reset
+
+// Logo rows (raw, no color codes - we'll add colors dynamically)
+logo_row_1: .ascii "    ███████ ███    ██  █████  ██   ██ ███████"
+logo_row_1_len = . - logo_row_1
+
+logo_row_2: .ascii "    ██      ████   ██ ██   ██ ██  ██  ██     "
+logo_row_2_len = . - logo_row_2
+
+logo_row_3: .ascii "    ███████ ██ ██  ██ ███████ █████   █████  "
+logo_row_3_len = . - logo_row_3
+
+logo_row_4: .ascii "         ██ ██  ██ ██ ██   ██ ██  ██  ██     "
+logo_row_4_len = . - logo_row_4
+
+logo_row_5: .ascii "    ███████ ██   ████ ██   ██ ██   ██ ███████"
+logo_row_5_len = . - logo_row_5
+
+// Subtitle (stays static)
+logo_subtitle: .ascii "\n\x1b[93m           ~ Classic Arcade Game ~\x1b[0m\n\n"
+logo_subtitle_len = . - logo_subtitle
+
+// Newline for between rows
+anim_newline: .ascii "\n"
+anim_newline_len = . - anim_newline
+
 // ANSI escape sequences
 clear_screen_seq: .ascii "\x1b[2J"
 clear_screen_seq_len = . - clear_screen_seq
@@ -3959,10 +4212,10 @@ food_count_text_len = . - food_count_text
 pause_text: .ascii "\n\x1b[93m\x1b[1m  ╔═══════════════════════════════════╗\n  ║  PAUSED - Press SPACE to resume  ║\n  ╚═══════════════════════════════════╝\x1b[0m\n"
 pause_text_len = . - pause_text
 
-level_display_text: .ascii " \x1b[90m|\x1b[0m\x1b[95m Lv:\x1b[0m"
+level_display_text: .ascii " \x1b[90m|\x1b[0m\x1b[95m Level:\x1b[0m"
 level_display_text_len = . - level_display_text
 
-speed_text: .ascii " \x1b[90m|\x1b[0m\x1b[96m Spd:\x1b[0m"
+speed_text: .ascii " \x1b[90m|\x1b[0m\x1b[96m Speed:\x1b[0m"
 speed_text_len = . - speed_text
 
 time_text: .ascii " \x1b[90m|\x1b[0m\x1b[90m "
