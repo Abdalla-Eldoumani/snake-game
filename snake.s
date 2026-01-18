@@ -48,6 +48,8 @@
 .equ LEVEL_NORMAL, 1
 .equ LEVEL_NO_WALLS, 2
 .equ LEVEL_SUPER_FAST, 3
+.equ LEVEL_OBSTACLES, 4
+.equ LEVEL_QUIT, 5
 
 // Score constants
 .equ MAX_SCORE, 65535
@@ -63,10 +65,22 @@
 .equ CELL_SNAKE, 1
 .equ CELL_FOOD, 2
 .equ CELL_WALL, 3
+.equ CELL_OBSTACLE, 4
+.equ CELL_POWERUP_SLOW, 5
+.equ CELL_POWERUP_SHRINK, 6
 
 // Food types
 .equ FOOD_NORMAL, 0
 .equ FOOD_GOLDEN, 1
+.equ FOOD_SLOWMO, 2
+.equ FOOD_SHRINK, 3
+
+// Power-up constants
+.equ NUM_OBSTACLES, 6
+.equ POWERUP_DURATION, 50
+.equ SHRINK_AMOUNT, 3
+.equ INITIAL_LIVES, 3
+.equ SLOWMO_SPEED, 400
 
 _start:
     // Set up stack frame
@@ -87,7 +101,10 @@ _start:
     bl      set_nonblocking_input
     cmp     x0, #0
     b.ne    restore_and_exit
-    
+
+    // Load high scores before showing menu
+    bl      load_high_scores
+
     // Show welcome screen and get level selection
     bl      show_welcome_screen
     bl      get_level_selection
@@ -179,14 +196,7 @@ show_welcome_screen:
     mov     x2, welcome_title_len
     mov     x8, #SYS_WRITE
     svc     #0
-    
-    // Display level selection text
-    mov     x0, #STDOUT_FILENO
-    adr     x1, level_select_text
-    mov     x2, level_select_text_len
-    mov     x8, #SYS_WRITE
-    svc     #0
-    
+
     ldp     x29, x30, [sp], #16
     ret
 
@@ -223,19 +233,47 @@ level_selection_done:
     adr     x0, quit_flag
     mov     w1, #0
     str     w1, [x0]
-    
+
+    // Check if quit was selected
+    adr     x0, current_level
+    ldr     w1, [x0]
+    cmp     w1, #LEVEL_QUIT
+    b.eq    menu_quit_selected
+
     ldp     x29, x30, [sp], #16
     ret
+
+menu_quit_selected:
+    // Restore terminal and exit cleanly
+    bl      restore_terminal_settings
+    bl      show_cursor
+    mov     x0, #0
+    mov     x8, #SYS_EXIT
+    svc     #0
 
 // Display level options with selection indicator
 display_level_options:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
-    
+
+    // Position cursor at menu start
+    mov     x0, #STDOUT_FILENO
+    adr     x1, cursor_to_menu
+    mov     x2, cursor_to_menu_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+    // Display level selection header
+    mov     x0, #STDOUT_FILENO
+    adr     x1, level_select_text
+    mov     x2, level_select_text_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+
     // Get current level
     adr     x0, current_level
     ldr     w19, [x0]
-    
+
     // Display Level 1
     cmp     w19, #LEVEL_NORMAL
     b.ne    display_level_1_normal
@@ -250,8 +288,8 @@ display_level_options:
 
 display_level_1_normal:
     mov     x0, #STDOUT_FILENO
-    adr     x1, clear_line
-    mov     x2, #3  // Just 3 spaces
+    adr     x1, no_indicator
+    mov     x2, no_indicator_len
     mov     x8, #SYS_WRITE
     svc     #0
 
@@ -275,8 +313,8 @@ display_level_1_text:
 
 display_level_2_normal:
     mov     x0, #STDOUT_FILENO
-    adr     x1, clear_line
-    mov     x2, #3
+    adr     x1, no_indicator
+    mov     x2, no_indicator_len
     mov     x8, #SYS_WRITE
     svc     #0
 
@@ -300,8 +338,8 @@ display_level_2_text:
 
 display_level_3_normal:
     mov     x0, #STDOUT_FILENO
-    adr     x1, clear_line
-    mov     x2, #3
+    adr     x1, no_indicator
+    mov     x2, no_indicator_len
     mov     x8, #SYS_WRITE
     svc     #0
 
@@ -311,14 +349,146 @@ display_level_3_text:
     mov     x2, level_3_text_len
     mov     x8, #SYS_WRITE
     svc     #0
-    
+
+    // Display Level 4
+    cmp     w19, #LEVEL_OBSTACLES
+    b.ne    display_level_4_normal
+
+    mov     x0, #STDOUT_FILENO
+    adr     x1, level_indicator
+    mov     x2, level_indicator_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    b       display_level_4_text
+
+display_level_4_normal:
+    mov     x0, #STDOUT_FILENO
+    adr     x1, no_indicator
+    mov     x2, no_indicator_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+display_level_4_text:
+    mov     x0, #STDOUT_FILENO
+    adr     x1, level_4_text
+    mov     x2, level_4_text_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+    // Display Quit option
+    cmp     w19, #LEVEL_QUIT
+    b.ne    display_quit_normal
+
+    mov     x0, #STDOUT_FILENO
+    adr     x1, level_indicator
+    mov     x2, level_indicator_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    b       display_quit_text
+
+display_quit_normal:
+    mov     x0, #STDOUT_FILENO
+    adr     x1, no_indicator
+    mov     x2, no_indicator_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+display_quit_text:
+    mov     x0, #STDOUT_FILENO
+    adr     x1, quit_option_text
+    mov     x2, quit_option_text_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+    // Display high scores section
+    mov     x0, #STDOUT_FILENO
+    adr     x1, high_score_label
+    mov     x2, high_score_label_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+    // Classic high score
+    mov     x0, #STDOUT_FILENO
+    adr     x1, hs_classic_label
+    mov     x2, hs_classic_label_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+    adr     x0, high_score_level1
+    ldr     w0, [x0]
+    adr     x1, score_buffer
+    bl      int_to_string
+    mov     x2, x0
+    mov     x0, #STDOUT_FILENO
+    adr     x1, score_buffer
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+    // Endless high score
+    mov     x0, #STDOUT_FILENO
+    adr     x1, hs_endless_label
+    mov     x2, hs_endless_label_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+    adr     x0, high_score_level2
+    ldr     w0, [x0]
+    adr     x1, score_buffer
+    bl      int_to_string
+    mov     x2, x0
+    mov     x0, #STDOUT_FILENO
+    adr     x1, score_buffer
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+    // Speed high score
+    mov     x0, #STDOUT_FILENO
+    adr     x1, hs_speed_label
+    mov     x2, hs_speed_label_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+    adr     x0, high_score_level3
+    ldr     w0, [x0]
+    adr     x1, score_buffer
+    bl      int_to_string
+    mov     x2, x0
+    mov     x0, #STDOUT_FILENO
+    adr     x1, score_buffer
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+    // Maze high score
+    mov     x0, #STDOUT_FILENO
+    adr     x1, hs_maze_label
+    mov     x2, hs_maze_label_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+    adr     x0, high_score_level4
+    ldr     w0, [x0]
+    adr     x1, score_buffer
+    bl      int_to_string
+    mov     x2, x0
+    mov     x0, #STDOUT_FILENO
+    adr     x1, score_buffer
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+    // Divider after scores
+    mov     x0, #STDOUT_FILENO
+    adr     x1, hs_divider
+    mov     x2, hs_divider_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+
     // Display prompt
     mov     x0, #STDOUT_FILENO
     adr     x1, level_select_prompt
     mov     x2, level_select_prompt_len
     mov     x8, #SYS_WRITE
     svc     #0
-    
+
     ldp     x29, x30, [sp], #16
     ret
 
@@ -359,11 +529,24 @@ wait_for_input:
     cmp     w0, #'S'
     b.eq    move_selection_down
     
+    // Check for quick quit (Q key)
+    cmp     w0, #'q'
+    b.eq    quick_quit_selected
+    cmp     w0, #'Q'
+    b.eq    quick_quit_selected
+
     // Check for escape sequence (arrow keys)
     cmp     w0, #0x1b
     b.eq    handle_level_arrow_keys
     
     b       get_level_input_done
+
+quick_quit_selected:
+    // Set selection to QUIT and confirm
+    adr     x0, current_level
+    mov     w1, #LEVEL_QUIT
+    str     w1, [x0]
+    b       confirm_selection
     
 confirm_selection:
     adr     x0, quit_flag
@@ -375,20 +558,20 @@ move_selection_up:
     adr     x0, current_level
     ldr     w1, [x0]
     cmp     w1, #LEVEL_NORMAL
-    b.eq    wrap_to_level_3
+    b.eq    wrap_to_quit
     sub     w1, w1, #1
     str     w1, [x0]
     b       get_level_input_done
 
-wrap_to_level_3:
-    mov     w1, #LEVEL_SUPER_FAST
+wrap_to_quit:
+    mov     w1, #LEVEL_QUIT
     str     w1, [x0]
     b       get_level_input_done
 
 move_selection_down:
     adr     x0, current_level
     ldr     w1, [x0]
-    cmp     w1, #LEVEL_SUPER_FAST
+    cmp     w1, #LEVEL_QUIT
     b.eq    wrap_to_level_1
     add     w1, w1, #1
     str     w1, [x0]
@@ -594,7 +777,24 @@ init_game:
     adr     x0, game_paused
     mov     w1, #0
     str     w1, [x0]
-    
+
+    // Initialize lives
+    adr     x0, lives_remaining
+    mov     w1, #INITIAL_LIVES
+    str     w1, [x0]
+
+    // Initialize power-up state
+    adr     x0, powerup_spawned
+    str     wzr, [x0]
+    adr     x0, powerup_active
+    str     wzr, [x0]
+    adr     x0, powerup_timer
+    str     wzr, [x0]
+
+    // Initialize restart flag
+    adr     x0, restart_requested
+    str     wzr, [x0]
+
     // Record game start time
     bl      get_current_time
     adr     x0, game_start_time
@@ -612,7 +812,14 @@ init_game:
     
     // Place first food
     bl      place_food
-    
+
+    // Initialize obstacles for Level 4
+    adr     x0, current_level
+    ldr     w0, [x0]
+    cmp     w0, #LEVEL_OBSTACLES
+    b.ne    skip_obstacle_init
+    bl      init_obstacles
+skip_obstacle_init:
     // Initialize grid with snake and food
     bl      update_grid
     
@@ -632,6 +839,74 @@ memset_loop:
     subs    x2, x2, #1
     b.ne    memset_loop
 memset_done:
+    ret
+
+// Initialize obstacles for Level 4
+init_obstacles:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+
+    adr     x19, obstacle_positions
+    mov     w20, #0  // Obstacle counter
+
+init_obstacle_loop:
+    cmp     w20, #NUM_OBSTACLES
+    b.ge    init_obstacles_done
+
+    // Generate random position
+init_obstacle_retry:
+    adr     x0, random_buffer
+    mov     x1, #2
+    mov     x2, #0
+    mov     x8, #SYS_GETRANDOM
+    svc     #0
+
+    adr     x0, random_buffer
+    ldrb    w1, [x0]
+    mov     w2, #GRID_WIDTH
+    udiv    w3, w1, w2
+    mul     w3, w3, w2
+    sub     w21, w1, w3  // x = w21
+
+    ldrb    w1, [x0, #1]
+    mov     w2, #GRID_HEIGHT
+    udiv    w3, w1, w2
+    mul     w3, w3, w2
+    sub     w22, w1, w3  // y = w22
+
+    // Avoid center area (snake starting position) - 5x5 area
+    mov     w0, #(GRID_WIDTH / 2)
+    sub     w1, w0, #3
+    add     w2, w0, #3
+    cmp     w21, w1
+    b.lt    position_ok
+    cmp     w21, w2
+    b.gt    position_ok
+
+    mov     w0, #(GRID_HEIGHT / 2)
+    sub     w1, w0, #3
+    add     w2, w0, #3
+    cmp     w22, w1
+    b.lt    position_ok
+    cmp     w22, w2
+    b.gt    position_ok
+
+    // Too close to center, retry
+    b       init_obstacle_retry
+
+position_ok:
+    // Store obstacle position
+    mov     w0, #8
+    mul     w0, w20, w0
+    add     x0, x19, x0
+    str     w21, [x0]
+    str     w22, [x0, #4]
+
+    add     w20, w20, #1
+    b       init_obstacle_loop
+
+init_obstacles_done:
+    ldp     x29, x30, [sp], #16
     ret
 
 
@@ -959,14 +1234,107 @@ check_self_collision:
     ldrb    w1, [x0, x2]
     cmp     w1, #CELL_SNAKE
     b.eq    collision_detected
-    
+
+    // Check obstacle collision
+    adr     x0, current_level
+    ldr     w0, [x0]
+    cmp     w0, #LEVEL_OBSTACLES
+    b.ne    no_collision
+
+    adr     x0, game_grid
+    ldrb    w1, [x0, x2]
+    cmp     w1, #CELL_OBSTACLE
+    b.eq    collision_detected
+
+no_collision:
     // No collision
     mov     x0, #0
     ldp     x29, x30, [sp], #16
     ret
 
 collision_detected:
+    // Handle collision with lives system
+    bl      handle_collision_with_lives
+    ldp     x29, x30, [sp], #16
+    ret
+
+// Handle collision with lives system
+// Returns 0 if still alive (respawned), 1 if game over
+handle_collision_with_lives:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+
+    // Decrement lives
+    adr     x0, lives_remaining
+    ldr     w1, [x0]
+    sub     w1, w1, #1
+    str     w1, [x0]
+
+    // Check if game over
+    cbz     w1, lives_game_over
+
+    // Still have lives - play death flash then respawn
+    bl      play_death_flash
+    bl      reset_snake_position
+    bl      update_grid
+
+    // Return 0 (continue playing)
+    mov     x0, #0
+    ldp     x29, x30, [sp], #16
+    ret
+
+lives_game_over:
+    // No lives left - return 1 (game over)
     mov     x0, #1
+    ldp     x29, x30, [sp], #16
+    ret
+
+// Reset snake position to center (keeps score/food count)
+reset_snake_position:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+
+    // Reset snake length to initial
+    adr     x0, snake_length
+    mov     w1, #INITIAL_SNAKE_LENGTH
+    str     w1, [x0]
+
+    // Reset head index
+    adr     x0, snake_head_index
+    mov     w1, #0
+    str     w1, [x0]
+
+    // Reset direction to right
+    adr     x0, snake_direction
+    mov     w1, #DIR_RIGHT
+    str     w1, [x0]
+
+    // Place snake at center
+    mov     x0, #(GRID_WIDTH / 2)
+    mov     x1, #(GRID_HEIGHT / 2)
+
+    // Head
+    adr     x2, snake_body
+    str     w0, [x2]
+    str     w1, [x2, #4]
+
+    // Body segments
+    sub     w0, w0, #1
+    str     w0, [x2, #8]
+    str     w1, [x2, #12]
+
+    sub     w0, w0, #1
+    str     w0, [x2, #16]
+    str     w1, [x2, #20]
+
+    // Clear powerup state
+    adr     x0, powerup_spawned
+    str     wzr, [x0]
+    adr     x0, powerup_active
+    str     wzr, [x0]
+    adr     x0, powerup_timer
+    str     wzr, [x0]
+
     ldp     x29, x30, [sp], #16
     ret
 
@@ -1046,6 +1414,12 @@ add_score_done:
     bl      place_food
     
 no_food_collision:
+    // Check for power-up collision
+    bl      check_powerup_collision
+
+    // Update power-up timer
+    bl      update_powerup_timer
+
     // Update grid with new snake position
     bl      update_grid
     
@@ -1128,6 +1502,216 @@ place_food_loop:
     ldp     x29, x30, [sp], #16
     ret
 
+// Try to spawn a power-up (10% chance)
+try_spawn_powerup:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+
+    // Check if powerup already spawned
+    adr     x0, powerup_spawned
+    ldr     w0, [x0]
+    cbnz    w0, spawn_powerup_done
+
+    // Generate random number (10% chance)
+    adr     x0, random_buffer
+    mov     x1, #1
+    mov     x2, #0
+    mov     x8, #SYS_GETRANDOM
+    svc     #0
+
+    adr     x0, random_buffer
+    ldrb    w1, [x0]
+    mov     w2, #10
+    udiv    w3, w1, w2
+    mul     w3, w3, w2
+    sub     w1, w1, w3
+
+    // Only spawn if w1 == 0 (10% chance)
+    cbnz    w1, spawn_powerup_done
+
+    // Spawn a powerup
+    bl      spawn_powerup
+
+spawn_powerup_done:
+    ldp     x29, x30, [sp], #16
+    ret
+
+// Actually spawn a powerup at random position
+spawn_powerup:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+
+    // Decide powerup type (50/50 slowmo or shrink)
+    adr     x0, random_buffer
+    mov     x1, #1
+    mov     x2, #0
+    mov     x8, #SYS_GETRANDOM
+    svc     #0
+
+    adr     x0, random_buffer
+    ldrb    w1, [x0]
+    and     w1, w1, #1  // 0 or 1
+
+    adr     x0, powerup_type
+    cmp     w1, #0
+    mov     w2, #FOOD_SLOWMO
+    mov     w3, #FOOD_SHRINK
+    csel    w1, w2, w3, eq
+    str     w1, [x0]
+
+spawn_powerup_position:
+    // Generate random position
+    adr     x0, random_buffer
+    mov     x1, #2
+    mov     x2, #0
+    mov     x8, #SYS_GETRANDOM
+    svc     #0
+
+    adr     x0, random_buffer
+    ldrb    w1, [x0]
+    mov     w2, #GRID_WIDTH
+    udiv    w3, w1, w2
+    mul     w3, w3, w2
+    sub     w19, w1, w3  // x = w19
+
+    ldrb    w1, [x0, #1]
+    mov     w2, #GRID_HEIGHT
+    udiv    w3, w1, w2
+    mul     w3, w3, w2
+    sub     w20, w1, w3  // y = w20
+
+    // Check if position is empty
+    mov     w1, #GRID_WIDTH
+    mul     w2, w20, w1
+    add     w2, w2, w19
+
+    adr     x0, game_grid
+    ldrb    w3, [x0, x2]
+    cmp     w3, #CELL_EMPTY
+    b.ne    spawn_powerup_position
+
+    // Store powerup position
+    adr     x0, powerup_position
+    str     w19, [x0]
+    str     w20, [x0, #4]
+
+    // Mark powerup as spawned
+    adr     x0, powerup_spawned
+    mov     w1, #1
+    str     w1, [x0]
+
+    ldp     x29, x30, [sp], #16
+    ret
+
+// Check if snake head is on powerup
+check_powerup_collision:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+
+    // Check if powerup exists
+    adr     x0, powerup_spawned
+    ldr     w0, [x0]
+    cbz     w0, powerup_collision_done
+
+    // Get head position
+    adr     x0, snake_head_index
+    ldr     w0, [x0]
+    adr     x1, snake_body
+    mov     w2, #8
+    mul     w0, w0, w2
+    add     x1, x1, x0
+
+    ldr     w2, [x1]      // head x
+    ldr     w3, [x1, #4]  // head y
+
+    // Check if head is on powerup
+    adr     x0, powerup_position
+    ldr     w4, [x0]
+    ldr     w5, [x0, #4]
+
+    cmp     w2, w4
+    b.ne    powerup_collision_done
+    cmp     w3, w5
+    b.ne    powerup_collision_done
+
+    // Powerup consumed!
+    adr     x0, powerup_spawned
+    str     wzr, [x0]
+
+    // Check powerup type
+    adr     x0, powerup_type
+    ldr     w0, [x0]
+    cmp     w0, #FOOD_SLOWMO
+    b.eq    activate_slowmo
+    cmp     w0, #FOOD_SHRINK
+    b.eq    activate_shrink
+    b       powerup_collision_done
+
+activate_slowmo:
+    // Activate slow-mo effect
+    adr     x0, powerup_active
+    mov     w1, #1
+    str     w1, [x0]
+
+    adr     x0, powerup_timer
+    mov     w1, #POWERUP_DURATION
+    str     w1, [x0]
+    b       powerup_collision_done
+
+activate_shrink:
+    // Shrink the snake
+    bl      shrink_snake
+
+powerup_collision_done:
+    ldp     x29, x30, [sp], #16
+    ret
+
+// Shrink snake by SHRINK_AMOUNT (minimum INITIAL_SNAKE_LENGTH)
+shrink_snake:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+
+    adr     x0, snake_length
+    ldr     w1, [x0]
+
+    // Calculate new length
+    sub     w1, w1, #SHRINK_AMOUNT
+    cmp     w1, #INITIAL_SNAKE_LENGTH
+    mov     w2, #INITIAL_SNAKE_LENGTH
+    csel    w1, w2, w1, lt  // Use INITIAL_SNAKE_LENGTH if < INITIAL_SNAKE_LENGTH
+
+    str     w1, [x0]
+
+    ldp     x29, x30, [sp], #16
+    ret
+
+// Update powerup timer, deactivate when expired
+update_powerup_timer:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+
+    // Check if powerup is active
+    adr     x0, powerup_active
+    ldr     w0, [x0]
+    cbz     w0, update_timer_done
+
+    // Decrement timer
+    adr     x0, powerup_timer
+    ldr     w1, [x0]
+    sub     w1, w1, #1
+    str     w1, [x0]
+
+    // Check if expired
+    cbnz    w1, update_timer_done
+
+    // Deactivate powerup
+    adr     x0, powerup_active
+    str     wzr, [x0]
+
+update_timer_done:
+    ldp     x29, x30, [sp], #16
+    ret
+
 // Update grid with current snake position
 update_grid:
     stp     x29, x30, [sp, #-16]!
@@ -1193,7 +1777,70 @@ snake_placed:
     adr     x0, game_grid
     mov     w3, #CELL_FOOD
     strb    w3, [x0, x1]
-    
+
+    // Place obstacles (only for Level 4)
+    adr     x0, current_level
+    ldr     w0, [x0]
+    cmp     w0, #LEVEL_OBSTACLES
+    b.ne    skip_place_obstacles
+
+    adr     x19, obstacle_positions
+    mov     w20, #0
+
+place_obstacles_loop:
+    cmp     w20, #NUM_OBSTACLES
+    b.ge    skip_place_obstacles
+
+    mov     w0, #8
+    mul     w0, w20, w0
+    add     x0, x19, x0
+    ldr     w1, [x0]      // x
+    ldr     w2, [x0, #4]  // y
+
+    mov     w3, #GRID_WIDTH
+    mul     w2, w2, w3
+    add     w1, w1, w2
+
+    adr     x0, game_grid
+    mov     w3, #CELL_OBSTACLE
+    strb    w3, [x0, x1]
+
+    add     w20, w20, #1
+    b       place_obstacles_loop
+
+skip_place_obstacles:
+
+    // Place power-up if spawned
+    adr     x0, powerup_spawned
+    ldr     w0, [x0]
+    cbz     w0, skip_place_powerup
+
+    adr     x0, powerup_position
+    ldr     w1, [x0]
+    ldr     w2, [x0, #4]
+
+    mov     w3, #GRID_WIDTH
+    mul     w2, w2, w3
+    add     w1, w1, w2
+
+    adr     x0, powerup_type
+    ldr     w3, [x0]
+    cmp     w3, #FOOD_SLOWMO
+    b.eq    place_slowmo_powerup
+
+    // Shrink power-up
+    adr     x0, game_grid
+    mov     w3, #CELL_POWERUP_SHRINK
+    strb    w3, [x0, x1]
+    b       skip_place_powerup
+
+place_slowmo_powerup:
+    adr     x0, game_grid
+    mov     w3, #CELL_POWERUP_SLOW
+    strb    w3, [x0, x1]
+
+skip_place_powerup:
+
     ldp     x29, x30, [sp], #16
     ret
 
@@ -1267,7 +1914,7 @@ draw_grid_loop:
     // Draw left border
     mov     x0, #STDOUT_FILENO
     adr     x1, vertical_border
-    mov     x2, #1
+    mov     x2, vertical_border_len
     mov     x8, #SYS_WRITE
     svc     #0
     
@@ -1291,7 +1938,13 @@ draw_row_loop:
     b.eq    draw_snake_cell
     cmp     w2, #CELL_FOOD
     b.eq    draw_food_cell
-    
+    cmp     w2, #CELL_OBSTACLE
+    b.eq    draw_obstacle_cell
+    cmp     w2, #CELL_POWERUP_SLOW
+    b.eq    draw_slowmo_cell
+    cmp     w2, #CELL_POWERUP_SHRINK
+    b.eq    draw_shrink_cell
+
     // Empty cell
     mov     x0, #STDOUT_FILENO
     adr     x1, empty_cell
@@ -1301,9 +1954,64 @@ draw_row_loop:
     b       draw_cell_done
 
 draw_snake_cell:
+    // Check if this is the snake head position
+    stp     x19, x20, [sp, #-16]!
+
+    // Get head position
+    adr     x0, snake_head_index
+    ldr     w0, [x0]
+    adr     x1, snake_body
+    mov     w2, #8
+    mul     w0, w0, w2
+    add     x1, x1, x0
+
+    ldr     w2, [x1]      // head x
+    ldr     w3, [x1, #4]  // head y
+
+    ldp     x0, x1, [sp], #16
+
+    // Compare current cell position (w20=x, w19=y) with head position
+    cmp     w20, w2
+    b.ne    draw_body_cell
+    cmp     w19, w3
+    b.ne    draw_body_cell
+
+    // This is the head - draw bright green @
+    mov     x0, #STDOUT_FILENO
+    adr     x1, snake_head_cell
+    mov     x2, snake_head_cell_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    b       draw_cell_done
+
+draw_body_cell:
     mov     x0, #STDOUT_FILENO
     adr     x1, snake_cell
     mov     x2, snake_cell_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    b       draw_cell_done
+
+draw_obstacle_cell:
+    mov     x0, #STDOUT_FILENO
+    adr     x1, obstacle_cell
+    mov     x2, obstacle_cell_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    b       draw_cell_done
+
+draw_slowmo_cell:
+    mov     x0, #STDOUT_FILENO
+    adr     x1, slowmo_cell
+    mov     x2, slowmo_cell_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+    b       draw_cell_done
+
+draw_shrink_cell:
+    mov     x0, #STDOUT_FILENO
+    adr     x1, shrink_cell
+    mov     x2, shrink_cell_len
     mov     x8, #SYS_WRITE
     svc     #0
     b       draw_cell_done
@@ -1339,7 +2047,7 @@ draw_row_done:
     // Draw right border and newline
     mov     x0, #STDOUT_FILENO
     adr     x1, vertical_border_newline
-    mov     x2, #2
+    mov     x2, vertical_border_newline_len
     mov     x8, #SYS_WRITE
     svc     #0
     
@@ -1348,8 +2056,8 @@ draw_row_done:
 
 draw_grid_done:
     // Draw bottom border
-    bl      draw_horizontal_border
-    
+    bl      draw_horizontal_border_bottom
+
     // Draw controls
     mov     x0, #STDOUT_FILENO
     adr     x1, controls_text
@@ -1364,11 +2072,18 @@ draw_grid_done:
 draw_header:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
-    
-    // Draw title
+
+    // Clear line first to prevent stale text (fixes slow-mo indicator staying)
     mov     x0, #STDOUT_FILENO
-    adr     x1, game_title
-    mov     x2, game_title_len
+    adr     x1, clear_line
+    mov     x2, clear_line_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+    // Draw title with color
+    mov     x0, #STDOUT_FILENO
+    adr     x1, header_bar
+    mov     x2, header_bar_len
     mov     x8, #SYS_WRITE
     svc     #0
     
@@ -1451,52 +2166,155 @@ draw_header:
     mov     x2, seconds_text_len
     mov     x8, #SYS_WRITE
     svc     #0
-    
+
+    // Display lives
+    mov     x0, #STDOUT_FILENO
+    adr     x1, lives_text
+    mov     x2, lives_text_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+    adr     x0, lives_remaining
+    ldr     w0, [x0]
+    adr     x1, speed_buffer
+    bl      int_to_string
+
+    mov     x2, x0
+    mov     x0, #STDOUT_FILENO
+    adr     x1, speed_buffer
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+    // Display slowmo countdown if active
+    adr     x0, powerup_active
+    ldr     w0, [x0]
+    cbz     w0, skip_slowmo_indicator
+
+    // Write prefix " [SLOW "
+    mov     x0, #STDOUT_FILENO
+    adr     x1, slowmo_prefix
+    mov     x2, slowmo_prefix_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+    // Calculate seconds remaining (timer / 5 to approximate seconds)
+    // Timer starts at 50, each game loop is ~200-400ms
+    adr     x0, powerup_timer
+    ldr     w0, [x0]
+    mov     w1, #5
+    udiv    w0, w0, w1          // w0 = timer / 5 (approximate seconds)
+    add     w0, w0, #1          // Add 1 to avoid showing 0 while active
+
+    // Convert to string
+    adr     x1, slowmo_timer_buffer
+    bl      int_to_string
+    mov     x2, x0              // x2 = length from int_to_string
+
+    // Write the number
+    mov     x0, #STDOUT_FILENO
+    adr     x1, slowmo_timer_buffer
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+    // Write suffix "s]"
+    mov     x0, #STDOUT_FILENO
+    adr     x1, slowmo_suffix
+    mov     x2, slowmo_suffix_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+skip_slowmo_indicator:
+
     // Newline
     mov     x0, #STDOUT_FILENO
     adr     x1, newline
     mov     x2, #1
     mov     x8, #SYS_WRITE
     svc     #0
-    
+
     ldp     x29, x30, [sp], #16
     ret
 
-// Draw horizontal border
+// Draw horizontal border (top)
 draw_horizontal_border:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
-    
-    // Corner
+
+    // Top left corner with color
     mov     x0, #STDOUT_FILENO
     adr     x1, corner_char
-    mov     x2, #1
+    mov     x2, corner_char_len
     mov     x8, #SYS_WRITE
     svc     #0
-    
-    // Horizontal line
+
+    // Horizontal line (gray color continues from corner_char)
     mov     w19, #0
 border_loop:
     cmp     w19, #GRID_WIDTH
     b.ge    border_done
-    
+
     mov     x0, #STDOUT_FILENO
     adr     x1, horizontal_border
-    mov     x2, #1
+    mov     x2, #3              // UTF-8 ─ is 3 bytes
     mov     x8, #SYS_WRITE
     svc     #0
-    
+
     add     w19, w19, #1
     b       border_loop
 
 border_done:
-    // Corner and newline
+    // Top right corner and newline
     mov     x0, #STDOUT_FILENO
     adr     x1, corner_newline
-    mov     x2, #2
+    mov     x2, corner_newline_len
     mov     x8, #SYS_WRITE
     svc     #0
-    
+
+    ldp     x29, x30, [sp], #16
+    ret
+
+// Draw horizontal border (bottom)
+draw_horizontal_border_bottom:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+
+    // Bottom left corner with color
+    mov     x0, #STDOUT_FILENO
+    adr     x1, corner_bottom
+    mov     x2, corner_bottom_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+    // Horizontal line
+    mov     w19, #0
+border_bottom_loop:
+    cmp     w19, #GRID_WIDTH
+    b.ge    border_bottom_done
+
+    mov     x0, #STDOUT_FILENO
+    adr     x1, horizontal_border
+    mov     x2, #3              // UTF-8 ─ is 3 bytes
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+    add     w19, w19, #1
+    b       border_bottom_loop
+
+border_bottom_done:
+    // Bottom right corner and newline
+    mov     x0, #STDOUT_FILENO
+    adr     x1, corner_bottom_end
+    mov     x2, corner_bottom_end_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+    // Newline
+    mov     x0, #STDOUT_FILENO
+    adr     x1, newline
+    mov     x2, #1
+    mov     x8, #SYS_WRITE
+    svc     #0
+
     ldp     x29, x30, [sp], #16
     ret
 
@@ -1561,7 +2379,10 @@ zero_case:
 display_game_over:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
-    
+
+    // Play death flash effect
+    bl      play_death_flash
+
     // Play game over sound
     bl      play_game_over_sound
     
@@ -1622,22 +2443,154 @@ display_game_over:
     
     // Check for new records and save high scores
     bl      check_and_update_records
-    
+
+    // Show restart prompt
+    mov     x0, #STDOUT_FILENO
+    adr     x1, restart_prompt
+    mov     x2, restart_prompt_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+    // Wait for restart or quit
+    bl      wait_for_restart_or_quit
+
     ldp     x29, x30, [sp], #16
     ret
 
+// Wait for R (restart) or Q (quit to menu) input
+wait_for_restart_or_quit:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+
+restart_input_loop:
+    // Read input (blocking)
+    mov     x0, #STDIN_FILENO
+    adr     x1, input_buffer
+    mov     x2, #1
+    mov     x8, #SYS_READ
+    svc     #0
+
+    cmp     x0, #1
+    b.ne    restart_input_loop
+
+    // Get the character
+    adr     x0, input_buffer
+    ldrb    w0, [x0]
+
+    // Check for R (restart)
+    cmp     w0, #'r'
+    b.eq    do_restart
+    cmp     w0, #'R'
+    b.eq    do_restart
+
+    // Check for Q (quit)
+    cmp     w0, #'q'
+    b.eq    do_quit_menu
+    cmp     w0, #'Q'
+    b.eq    do_quit_menu
+
+    b       restart_input_loop
+
+do_restart:
+    // Set restart flag and reinitialize game
+    adr     x0, restart_requested
+    mov     w1, #1
+    str     w1, [x0]
+
+    // Reinitialize game (keep current level)
+    bl      init_game
+
+    // Clear screen
+    bl      clear_screen
+    bl      hide_cursor
+
+    // Jump back to game loop
+    ldp     x29, x30, [sp], #16
+    b       game_loop
+
+do_quit_menu:
+    // Go back to level selection
+    bl      clear_screen
+    bl      show_welcome_screen
+    bl      get_level_selection
+
+    // Reinitialize game with new level
+    bl      init_game
+    bl      clear_screen
+    bl      hide_cursor
+
+    ldp     x29, x30, [sp], #16
+    b       game_loop
+
 // Display pause message
+// Play death flash effect (red flash 3 times)
+play_death_flash:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+
+    mov     w19, #3  // Flash 3 times
+
+flash_loop:
+    cbz     w19, flash_done
+
+    // Set red background
+    mov     x0, #STDOUT_FILENO
+    adr     x1, flash_red
+    mov     x2, flash_red_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+    // Clear screen with red
+    bl      clear_screen
+
+    // Short delay (50ms)
+    adr     x0, sleep_time
+    mov     x1, #0
+    str     x1, [x0]
+    movz    x1, #0xF080, lsl #0    // 50ms in nanoseconds (0x02FAF080)
+    movk    x1, #0x02FA, lsl #16
+    str     x1, [x0, #8]
+    mov     x8, #SYS_NANOSLEEP
+    svc     #0
+
+    // Reset colors
+    mov     x0, #STDOUT_FILENO
+    adr     x1, flash_reset
+    mov     x2, flash_reset_len
+    mov     x8, #SYS_WRITE
+    svc     #0
+
+    // Clear screen
+    bl      clear_screen
+
+    // Short delay
+    adr     x0, sleep_time
+    mov     x1, #0
+    str     x1, [x0]
+    movz    x1, #0xF080, lsl #0    // 50ms in nanoseconds
+    movk    x1, #0x02FA, lsl #16
+    str     x1, [x0, #8]
+    mov     x8, #SYS_NANOSLEEP
+    svc     #0
+
+    sub     w19, w19, #1
+    b       flash_loop
+
+flash_done:
+    ldp     x29, x30, [sp], #16
+    ret
+
 display_pause_message:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
-    
+
     // Move cursor to bottom of screen
     mov     x0, #STDOUT_FILENO
     adr     x1, pause_text
     mov     x2, pause_text_len
     mov     x8, #SYS_WRITE
     svc     #0
-    
+
     ldp     x29, x30, [sp], #16
     ret
 
@@ -1756,6 +2709,8 @@ set_no_file_flag:
     str     wzr, [x0]
     adr     x0, high_score_level3
     str     wzr, [x0]
+    adr     x0, high_score_level4
+    str     wzr, [x0]
 
 load_high_scores_done:
     ldp     x29, x30, [sp], #16
@@ -1775,9 +2730,11 @@ build_multilevel_file_format:
     adr     x0, high_score_level1
     ldr     w21, [x0]              // w21 = Level 1 score
     adr     x0, high_score_level2
-    ldr     w22, [x0]              // w22 = Level 2 score  
+    ldr     w22, [x0]              // w22 = Level 2 score
     adr     x0, high_score_level3
     ldr     w23, [x0]              // w23 = Level 3 score
+    adr     x0, high_score_level4
+    ldr     w24, [x0]              // w24 = Level 4 score
     
     adr     x19, high_score_buffer  // Current write position
     mov     x20, #0                 // Total length counter
@@ -1787,70 +2744,89 @@ build_multilevel_file_format:
     mov     w1, #level1_label_len
     bl      copy_string_to_buffer
     
-    // Add Level 1 score (use preserved w21)
-    mov     w0, w21               // Use preserved Level 1 score
-    adr     x1, speed_buffer  // Temporary buffer for conversion
+    // Add Level 1 score - use maximum of current and backup
+    mov     w0, w21               // w0 = current Level 1 score
+    adr     x25, level1_backup
+    ldr     w25, [x25]            // w25 = backup Level 1 score
+    cmp     w0, w25
+    csel    w0, w25, w0, lt       // w0 = max(current, backup)
+    adr     x1, speed_buffer
     bl      int_to_string
-    mov     w1, w0            // Length returned by int_to_string
+    mov     w1, w0
     adr     x0, speed_buffer
     bl      copy_string_to_buffer
-    
+
     // Add newline
     mov     w0, #10
     strb    w0, [x19], #1
     add     x20, x20, #1
-    
+
     // Add LEVEL2: label
     adr     x0, level2_label
     mov     w1, #level2_label_len
     bl      copy_string_to_buffer
-    
-    // Add Level 2 score - use backup if corrupted
-    mov     w0, w22               // Use preserved Level 2 score
-    
-    // If Level 2 is 0 and we're NOT in Level 2, use backup
-    cmp     w0, #0
-    b.ne    level2_score_ok
-    
-    adr     x25, current_level
-    ldr     w25, [x25]
-    cmp     w25, #LEVEL_NO_WALLS
-    b.eq    level2_score_ok       // We're in Level 2, 0 might be legitimate
-    
-    // We're in Level 1 or Level 3 and Level 2 is 0 - use backup
+
+    // Add Level 2 score - use maximum of current and backup
+    mov     w0, w22               // w0 = current Level 2 score
     adr     x25, level2_backup
-    ldr     w0, [x25]
-    
-level2_score_ok:
+    ldr     w25, [x25]            // w25 = backup Level 2 score
+    cmp     w0, w25
+    csel    w0, w25, w0, lt       // w0 = max(current, backup)
     adr     x1, speed_buffer
     bl      int_to_string
     mov     w1, w0
     adr     x0, speed_buffer
     bl      copy_string_to_buffer
-    
+
     // Add newline
     mov     w0, #10
     strb    w0, [x19], #1
     add     x20, x20, #1
-    
+
     // Add LEVEL3: label
     adr     x0, level3_label
     mov     w1, #level3_label_len
     bl      copy_string_to_buffer
-    
-    // Add Level 3 score (use preserved w23)
-    mov     w0, w23               // Use preserved Level 3 score
+
+    // Add Level 3 score - use maximum of current and backup
+    mov     w0, w23               // w0 = current Level 3 score
+    adr     x25, level3_backup
+    ldr     w25, [x25]            // w25 = backup Level 3 score
+    cmp     w0, w25
+    csel    w0, w25, w0, lt       // w0 = max(current, backup)
     adr     x1, speed_buffer
     bl      int_to_string
     mov     w1, w0
     adr     x0, speed_buffer
     bl      copy_string_to_buffer
-    
+
+    // Add newline
+    mov     w0, #10
+    strb    w0, [x19], #1
+    add     x20, x20, #1
+
+    // Add LEVEL4: label
+    adr     x0, level4_label
+    mov     w1, #level4_label_len
+    bl      copy_string_to_buffer
+
+    // Add Level 4 score - use maximum of current and backup
+    mov     w0, w24               // w0 = current Level 4 score
+    adr     x25, level4_backup
+    ldr     w25, [x25]            // w25 = backup Level 4 score
+    cmp     w0, w25
+    csel    w0, w25, w0, lt       // w0 = max(current, backup)
+    adr     x1, speed_buffer
+    bl      int_to_string
+    mov     w1, w0
+    adr     x0, speed_buffer
+    bl      copy_string_to_buffer
+
     // Add final newline
     mov     w0, #10
     strb    w0, [x19], #1
     add     x20, x20, #1
-    
+
     // Null terminate
     strb    wzr, [x19]
     
@@ -1930,55 +2906,99 @@ find_done:
     ldp     x29, x30, [sp], #16
     ret
 
-// Preserve Level 2 value from existing file
-preserve_level2_from_file:
+// Preserve all level values from existing file
+preserve_all_levels_from_file:
     stp     x29, x30, [sp, #-32]!
     mov     x29, sp
     stp     x19, x20, [sp, #16]
-    
+
+    // Initialize all backups to 0
+    adr     x0, level1_backup
+    str     wzr, [x0]
+    adr     x0, level2_backup
+    str     wzr, [x0]
+    adr     x0, level3_backup
+    str     wzr, [x0]
+    adr     x0, level4_backup
+    str     wzr, [x0]
+
     // Try to read the current file
     mov     x0, #AT_FDCWD
     adr     x1, high_score_file
     mov     x2, #0  // O_RDONLY
     mov     x8, #SYS_OPENAT
     svc     #0
-    
+
     // Check if file opened successfully
     cmp     x0, #0
-    b.lt    preserve_level2_done  // File doesn't exist, nothing to preserve
-    
+    b.lt    preserve_all_done  // File doesn't exist, nothing to preserve
+
     mov     x19, x0  // Save file descriptor
-    
+
     // Read file content
     mov     x0, x19
     adr     x1, high_score_buffer
     mov     x2, #128
     mov     x8, #SYS_READ
     svc     #0
-    
+
     // Close file
     mov     x0, x19
     mov     x8, #SYS_CLOSE
     svc     #0
-    
-    // Look for "LEVEL2:" in the buffer and extract the number
+
+    // Extract Level 1 from file
+    adr     x19, high_score_buffer
+    adr     x1, level1_label
+    mov     w2, #level1_label_len
+    bl      find_string_in_buffer
+    cmp     x0, #0
+    b.eq    preserve_level2
+    add     x19, x0, #level1_label_len
+    bl      parse_number_from_position
+    adr     x1, level1_backup
+    str     w0, [x1]
+
+preserve_level2:
+    // Extract Level 2 from file
     adr     x19, high_score_buffer
     adr     x1, level2_label
     mov     w2, #level2_label_len
     bl      find_string_in_buffer
-    
     cmp     x0, #0
-    b.eq    preserve_level2_done  // LEVEL2: not found
-    
-    // x0 points to start of "LEVEL2:", skip to the number
+    b.eq    preserve_level3
     add     x19, x0, #level2_label_len
     bl      parse_number_from_position
-    
-    // Store the extracted Level 2 value in backup
     adr     x1, level2_backup
     str     w0, [x1]
-    
-preserve_level2_done:
+
+preserve_level3:
+    // Extract Level 3 from file
+    adr     x19, high_score_buffer
+    adr     x1, level3_label
+    mov     w2, #level3_label_len
+    bl      find_string_in_buffer
+    cmp     x0, #0
+    b.eq    preserve_level4
+    add     x19, x0, #level3_label_len
+    bl      parse_number_from_position
+    adr     x1, level3_backup
+    str     w0, [x1]
+
+preserve_level4:
+    // Extract Level 4 from file
+    adr     x19, high_score_buffer
+    adr     x1, level4_label
+    mov     w2, #level4_label_len
+    bl      find_string_in_buffer
+    cmp     x0, #0
+    b.eq    preserve_all_done
+    add     x19, x0, #level4_label_len
+    bl      parse_number_from_position
+    adr     x1, level4_backup
+    str     w0, [x1]
+
+preserve_all_done:
     ldp     x19, x20, [sp, #16]
     ldp     x29, x30, [sp], #32
     ret
@@ -1988,8 +3008,7 @@ save_high_scores:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
     
-    // CRITICAL FIX: Preserve Level 2 from current file before any operations
-    bl      preserve_level2_from_file
+    bl      preserve_all_levels_from_file
     
     // Build the multi-level file format in the buffer
     bl      build_multilevel_file_format
@@ -2140,7 +3159,7 @@ check_and_update_records:
     
     // Save all high scores before any operations
     adr     x0, high_score_level1
-    ldr     w22, [x0]  // Save Level 1 
+    ldr     w22, [x0]  // Save Level 1
     adr     x0, high_score_level2
     ldr     w23, [x0]  // Save Level 2
     // Also save Level 2 to backup location
@@ -2148,15 +3167,17 @@ check_and_update_records:
     str     w23, [x0]  // Store Level 2 in backup
     adr     x0, high_score_level3
     ldr     w24, [x0]  // Save Level 3
-    
+    adr     x0, high_score_level4
+    ldr     w25, [x0]  // Save Level 4
+
     // Get current score
     adr     x0, score
     ldr     w19, [x0]  // w19 = current score
-    
+
     // Get current level and determine which high score to check
     adr     x0, current_level
     ldr     w0, [x0]
-    
+
     // Get appropriate level high score address
     cmp     w0, #LEVEL_NORMAL
     b.eq    check_level1_record
@@ -2164,6 +3185,8 @@ check_and_update_records:
     b.eq    check_level2_record
     cmp     w0, #LEVEL_SUPER_FAST
     b.eq    check_level3_record
+    cmp     w0, #LEVEL_OBSTACLES
+    b.eq    check_level4_record
     b       check_records_done  // Unknown level, skip
 
 check_level1_record:
@@ -2176,6 +3199,10 @@ check_level2_record:
 
 check_level3_record:
     adr     x20, high_score_level3
+    b       compare_and_update
+
+check_level4_record:
+    adr     x20, high_score_level4
     b       compare_and_update
 
 compare_and_update:
@@ -2193,14 +3220,47 @@ compare_and_update:
     ldr     w0, [x0]
     cmp     w0, #1
     b.ne    check_records_done
-    
-    // Show NEW RECORD message  
+
+    // ADDITIONAL CHECK: Verify against backup values from file to prevent
+    // showing NEW RECORD when memory was corrupted
+    adr     x0, current_level
+    ldr     w0, [x0]
+
+    cmp     w0, #LEVEL_NORMAL
+    b.eq    verify_backup_level1
+    cmp     w0, #LEVEL_NO_WALLS
+    b.eq    verify_backup_level2
+    cmp     w0, #LEVEL_SUPER_FAST
+    b.eq    verify_backup_level3
+    cmp     w0, #LEVEL_OBSTACLES
+    b.eq    verify_backup_level4
+    b       check_records_done  // Unknown level, skip message
+
+verify_backup_level1:
+    adr     x0, level1_backup
+    b       do_backup_verify
+verify_backup_level2:
+    adr     x0, level2_backup
+    b       do_backup_verify
+verify_backup_level3:
+    adr     x0, level3_backup
+    b       do_backup_verify
+verify_backup_level4:
+    adr     x0, level4_backup
+    b       do_backup_verify
+
+do_backup_verify:
+    ldr     w0, [x0]            // w0 = backup value from file
+    cmp     w19, w0             // Compare current score with backup
+    b.le    check_records_done  // If not greater than backup, don't show message
+
+    // Show NEW RECORD message
     mov     x0, #STDOUT_FILENO
     adr     x1, new_record_text
     mov     x2, new_record_text_len
     mov     x8, #SYS_WRITE
     svc     #0
-    
+
     bl      play_new_record_sound
 
 check_records_done:
@@ -2228,7 +3288,14 @@ skip_level2_restore:
     adr     x1, high_score_level3
     str     w24, [x1]
 skip_level3_restore:
-    
+
+    // If we're not in Level 4, restore Level 4
+    cmp     w0, #LEVEL_OBSTACLES
+    b.eq    skip_level4_restore
+    adr     x1, high_score_level4
+    str     w25, [x1]
+skip_level4_restore:
+
     ldp     x22, x23, [sp, #16]
     ldp     x24, x25, [sp, #32]
     ldp     x29, x30, [sp], #48
@@ -2416,28 +3483,38 @@ play_game_over_sound:
 game_sleep:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
-    
+
+    // Check if slow-mo powerup is active
+    adr     x0, powerup_active
+    ldr     w0, [x0]
+    cbnz    w0, slowmo_speed
+
     // Check current level for speed adjustment
     adr     x0, current_level
     ldr     w0, [x0]
     cmp     w0, #LEVEL_SUPER_FAST
     b.eq    super_fast_speed
-    
-    // Normal speed calculation for Level 1 and 2
+
+    // Normal speed calculation for Level 1, 2, 4
     // Base speed: 200ms, reduce by 5ms per segment, minimum 80ms
     adr     x0, snake_length
     ldr     w1, [x0]
-    
+
     // Calculate: max(80ms, 200ms - (length-3)*5ms)
     sub     w1, w1, #INITIAL_SNAKE_LENGTH
     mov     w2, #5
     mul     w1, w1, w2
-    
+
     mov     w3, #200
     subs    w3, w3, w1
     mov     w4, #80
     cmp     w3, w4
     csel    w3, w4, w3, lt
+    b       apply_sleep_time
+
+slowmo_speed:
+    // Slow-mo powerup active: use SLOWMO_SPEED (400ms)
+    mov     w3, #SLOWMO_SPEED
     b       apply_sleep_time
 
 super_fast_speed:
@@ -2549,7 +3626,9 @@ parse_multilevel_scores:
     str     wzr, [x0]
     adr     x0, high_score_level3
     str     wzr, [x0]
-    
+    adr     x0, high_score_level4
+    str     wzr, [x0]
+
     // Parse each level entry
     adr     x19, high_score_buffer  // x19 = current position in buffer
     
@@ -2578,7 +3657,14 @@ parse_next_level:
     bl      compare_string
     cmp     x0, #1
     b.eq    parse_level3_score
-    
+
+    // Check for LEVEL4:
+    adr     x1, level4_label
+    mov     w2, #level4_label_len
+    bl      compare_string
+    cmp     x0, #1
+    b.eq    parse_level4_score
+
     // Skip to next line if no match
     bl      skip_to_next_line
     b       parse_next_level
@@ -2588,7 +3674,7 @@ parse_level1_score:
     bl      parse_number_from_position
     adr     x1, high_score_level1
     str     w0, [x1]
-    bl      skip_to_next_line
+    // parse_number_from_position already advances past newline, don't skip again
     b       parse_next_level
 
 parse_level2_score:
@@ -2596,7 +3682,6 @@ parse_level2_score:
     bl      parse_number_from_position
     adr     x1, high_score_level2
     str     w0, [x1]
-    bl      skip_to_next_line
     b       parse_next_level
 
 parse_level3_score:
@@ -2604,7 +3689,13 @@ parse_level3_score:
     bl      parse_number_from_position
     adr     x1, high_score_level3
     str     w0, [x1]
-    bl      skip_to_next_line
+    b       parse_next_level
+
+parse_level4_score:
+    add     x19, x19, #level4_label_len
+    bl      parse_number_from_position
+    adr     x1, high_score_level4
+    str     w0, [x1]
     b       parse_next_level
 
 parse_multilevel_done:
@@ -2714,6 +3805,20 @@ game_paused:    .word 0
 quit_flag:      .word 0
 current_level:  .word LEVEL_NORMAL
 
+// Obstacle data (6 obstacles, each with x,y coordinates = 12 words)
+obstacle_positions: .space (NUM_OBSTACLES * 8)
+
+// Power-up data
+powerup_position:   .space 8
+powerup_type:       .word 0
+powerup_spawned:    .word 0
+powerup_active:     .word 0
+powerup_timer:      .word 0
+
+// Lives system
+lives_remaining:    .word INITIAL_LIVES
+restart_requested:  .word 0
+
 // Game statistics
 game_start_time: .space 16
 current_time:   .space 16
@@ -2725,10 +3830,14 @@ elapsed_seconds: .word 0
 high_score_level1: .word 0
 high_score_level2: .word 0
 high_score_level3: .word 0
+high_score_level4: .word 0
 high_food_count: .word 0
 longest_time:   .word 0
 file_exists:    .word 0
+level1_backup:  .word 0   // Backup storage for Level 1 score
 level2_backup:  .word 0   // Backup storage for Level 2 score
+level3_backup:  .word 0   // Backup storage for Level 3 score
+level4_backup:  .word 0   // Backup storage for Level 4 score
 
 // Input/output buffers
 input_buffer:   .space 4
@@ -2752,6 +3861,9 @@ level2_label_len = . - level2_label
 
 level3_label: .ascii "LEVEL3:"
 level3_label_len = . - level3_label
+
+level4_label: .ascii "LEVEL4:"
+level4_label_len = . - level4_label
 
 // Sleep timing
 sleep_time:
@@ -2781,71 +3893,154 @@ food_cell_len = . - food_cell
 golden_food_cell: .ascii "\x1b[43m*\x1b[0m"
 golden_food_cell_len = . - golden_food_cell
 
+// Snake head (bright green @ character)
+snake_head_cell: .ascii "\x1b[92m@\x1b[0m"
+snake_head_cell_len = . - snake_head_cell
+
+// Obstacle cell (magenta #)
+obstacle_cell: .ascii "\x1b[45m#\x1b[0m"
+obstacle_cell_len = . - obstacle_cell
+
+// Power-up cells
+slowmo_cell: .ascii "\x1b[44m~\x1b[0m"
+slowmo_cell_len = . - slowmo_cell
+
+shrink_cell: .ascii "\x1b[45m-\x1b[0m"
+shrink_cell_len = . - shrink_cell
+
+// Death flash (red background)
+flash_red: .ascii "\x1b[41m"
+flash_red_len = . - flash_red
+
+flash_reset: .ascii "\x1b[0m"
+flash_reset_len = . - flash_reset
+
 empty_cell: .ascii " "
-vertical_border: .ascii "|"
-horizontal_border: .ascii "-"
-corner_char: .ascii "+"
-vertical_border_newline: .ascii "|\n"
-corner_newline: .ascii "+\n"
+vertical_border: .ascii "\x1b[90m│\x1b[0m"
+vertical_border_len = . - vertical_border
+horizontal_border: .ascii "─"
+corner_char: .ascii "\x1b[90m┌"
+corner_char_len = . - corner_char
+corner_end: .ascii "┐\x1b[0m"
+corner_end_len = . - corner_end
+corner_bottom: .ascii "\x1b[90m└"
+corner_bottom_len = . - corner_bottom
+corner_bottom_end: .ascii "┘\x1b[0m"
+corner_bottom_end_len = . - corner_bottom_end
+vertical_border_newline: .ascii "\x1b[90m│\x1b[0m\n"
+vertical_border_newline_len = . - vertical_border_newline
+corner_newline: .ascii "┐\x1b[0m\n"
+corner_newline_len = . - corner_newline
 newline: .ascii "\n"
 
-// Game text
-game_title: .ascii "=== SNAKE GAME ===\n"
-game_title_len = . - game_title
+// Game text - Styled with ANSI colors
+// Color codes: \x1b[92m=bright green, \x1b[93m=bright yellow, \x1b[96m=bright cyan
+//              \x1b[91m=bright red, \x1b[95m=bright magenta, \x1b[1m=bold, \x1b[0m=reset
 
-score_text: .ascii "Score: "
+// Header bar for in-game display
+header_bar: .ascii "\x1b[92m\x1b[1m SNAKE \x1b[0m\x1b[90m|\x1b[0m"
+header_bar_len = . - header_bar
+
+score_text: .ascii "\x1b[93m Score:\x1b[0m "
 score_text_len = . - score_text
 
-controls_text: .ascii "Controls: WASD/Arrow Keys to move, SPACE to pause, Q to quit\n"
+controls_text: .ascii "\x1b[90m WASD/Arrows=Move | SPACE=Pause | Q=Quit\x1b[0m\n"
 controls_text_len = . - controls_text
 
-game_over_text: .ascii "\n=== GAME OVER ===\n"
+game_over_text: .ascii "\n\x1b[91m\x1b[1m  ╔═══════════════════════════╗\n  ║       GAME OVER           ║\n  ╚═══════════════════════════╝\x1b[0m\n\n"
 game_over_text_len = . - game_over_text
 
-final_score_text: .ascii "Final Score: "
+final_score_text: .ascii "\x1b[93m    Final Score: \x1b[0m\x1b[1m"
 final_score_text_len = . - final_score_text
 
-food_count_text: .ascii "Food Eaten: "
+food_count_text: .ascii "\x1b[0m\n\x1b[96m    Food Eaten:  \x1b[0m"
 food_count_text_len = . - food_count_text
 
-pause_text: .ascii "\n=== PAUSED - Press SPACE to continue ===\n"
+pause_text: .ascii "\n\x1b[93m\x1b[1m  ╔═══════════════════════════════════╗\n  ║  PAUSED - Press SPACE to resume  ║\n  ╚═══════════════════════════════════╝\x1b[0m\n"
 pause_text_len = . - pause_text
 
-level_display_text: .ascii " | Level: "
+level_display_text: .ascii " \x1b[90m|\x1b[0m\x1b[95m Lv:\x1b[0m"
 level_display_text_len = . - level_display_text
 
-speed_text: .ascii " | Speed Level: "
+speed_text: .ascii " \x1b[90m|\x1b[0m\x1b[96m Spd:\x1b[0m"
 speed_text_len = . - speed_text
 
-time_text: .ascii " | Time: "
+time_text: .ascii " \x1b[90m|\x1b[0m\x1b[90m "
 time_text_len = . - time_text
 
-seconds_text: .ascii "s"
+seconds_text: .ascii "s\x1b[0m"
 seconds_text_len = . - seconds_text
 
-new_record_text: .ascii "\n*** NEW RECORD! ***\n"
+lives_text: .ascii " \x1b[90m|\x1b[0m\x1b[91m ♥:\x1b[0m"
+lives_text_len = . - lives_text
+
+slowmo_prefix: .ascii " \x1b[44m\x1b[1m SLOW "
+slowmo_prefix_len = . - slowmo_prefix
+
+slowmo_suffix: .ascii "s \x1b[0m"
+slowmo_suffix_len = . - slowmo_suffix
+
+slowmo_timer_buffer: .space 4  // Buffer for timer digits
+
+restart_prompt: .ascii "\n\x1b[90m    [R] Restart  |  [Q] Menu\x1b[0m\n"
+restart_prompt_len = . - restart_prompt
+
+new_record_text: .ascii "\n\x1b[93m\x1b[5m  ★★★ NEW HIGH SCORE! ★★★\x1b[0m\n"
 new_record_text_len = . - new_record_text
 
-welcome_title: .ascii "\n\n=== WELCOME TO SNAKE GAME ===\n\n"
+// Welcome screen ASCII art - clean version without box
+welcome_title: .ascii "\n\n\x1b[92m\x1b[1m    ███████ ███    ██  █████  ██   ██ ███████\n    ██      ████   ██ ██   ██ ██  ██  ██     \n    ███████ ██ ██  ██ ███████ █████   █████  \n         ██ ██  ██ ██ ██   ██ ██  ██  ██     \n    ███████ ██   ████ ██   ██ ██   ██ ███████\x1b[0m\n\n\x1b[93m           ~ Classic Arcade Game ~\x1b[0m\n\n"
 welcome_title_len = . - welcome_title
 
-level_select_text: .ascii "SELECT LEVEL:\n\n"
+level_select_text: .ascii "\x1b[1m\x1b[96m    SELECT YOUR CHALLENGE:\x1b[0m\n\n"
 level_select_text_len = . - level_select_text
 
-level_1_text: .ascii "  1. Normal Mode (Classic Snake)\n"
+level_1_text: .ascii "\x1b[92m CLASSIC \x1b[0m\x1b[90m- Traditional snake with walls\x1b[0m\n"
 level_1_text_len = . - level_1_text
 
-level_2_text: .ascii "  2. No Walls Mode (Snake wraps around edges)\n"
+level_2_text: .ascii "\x1b[96m ENDLESS \x1b[0m\x1b[90m- Wrap around screen edges\x1b[0m\n"
 level_2_text_len = . - level_2_text
 
-level_3_text: .ascii "  3. Super Fast Mode (High speed challenge)\n\n"
+level_3_text: .ascii "\x1b[93m SPEED   \x1b[0m\x1b[90m- Lightning fast challenge\x1b[0m\n"
 level_3_text_len = . - level_3_text
 
-level_select_prompt: .ascii "Use UP/DOWN arrow keys or W/S to select, ENTER to confirm\n"
+level_4_text: .ascii "\x1b[95m MAZE    \x1b[0m\x1b[90m- Navigate around obstacles\x1b[0m\n"
+level_4_text_len = . - level_4_text
+
+quit_option_text: .ascii "\x1b[91m EXIT   \x1b[0m\x1b[90m- Quit to terminal\x1b[0m\n\n"
+quit_option_text_len = . - quit_option_text
+
+// High score display for menu
+high_score_label: .ascii "\n\x1b[90m    ─────────────────────────────────\n\x1b[0m    \x1b[1m\x1b[93m★ HIGH SCORES ★\x1b[0m\n"
+high_score_label_len = . - high_score_label
+
+hs_classic_label: .ascii "    \x1b[92mClassic:\x1b[0m "
+hs_classic_label_len = . - hs_classic_label
+
+hs_endless_label: .ascii "  \x1b[96mEndless:\x1b[0m "
+hs_endless_label_len = . - hs_endless_label
+
+hs_speed_label: .ascii "\n    \x1b[93mSpeed:\x1b[0m   "
+hs_speed_label_len = . - hs_speed_label
+
+hs_maze_label: .ascii "  \x1b[95mMaze:\x1b[0m    "
+hs_maze_label_len = . - hs_maze_label
+
+hs_divider: .ascii "\n\x1b[90m    ─────────────────────────────────\x1b[0m\n\n"
+hs_divider_len = . - hs_divider
+
+level_select_prompt: .ascii "\x1b[90m    ↑/↓ or W/S to select, ENTER to start, Q to quit\x1b[0m\n"
 level_select_prompt_len = . - level_select_prompt
 
-level_indicator: .ascii ">>>"
+// Cursor position to menu start (row 12, column 1) + clear to end of screen
+cursor_to_menu: .ascii "\x1b[12;1H\x1b[J"
+cursor_to_menu_len = . - cursor_to_menu
+
+level_indicator: .ascii "  \x1b[97m\x1b[1m▶ \x1b[0m"
 level_indicator_len = . - level_indicator
+
+no_indicator: .ascii "    "
+no_indicator_len = . - no_indicator
 
 clear_line: .ascii "\x1b[2K\r"
 clear_line_len = . - clear_line
