@@ -1,101 +1,187 @@
-# snake
+# Snake Game - ARM64 Assembly
 
-Turn-based snake for the terminal, written in ARMv8 (AArch64) assembly in
-the style taught in CPSC 355 at the University of Calgary: m4 register
-aliases, AAPCS64 frame-pointer prologues, libc for console I/O, and raw
-Linux syscalls for the score file.
-
-The game is turn-based on purpose. Instead of racing a clock, you type a
-line of moves and watch them play out frame by frame. That trade makes the
-game run anywhere a terminal runs, including the console of the
-[AArch64 Playground](https://aarch64-playground.vercel.app), which has no
-raw terminal mode.
+Snake game written in ARM64 assembly for Linux. Has 4 game modes, power-ups, lives, and saves high scores.
 
 ```
- score 20 | len 5 | lives 3 | classic | moves 18
- +--------------------+
- |                    |
- |          *         |
- |                    |
- |    @               |
- |    o               |
- |    oo              |
- |                    |
- +--------------------+
+    ███████ ███    ██  █████  ██   ██ ███████
+    ██      ████   ██ ██   ██ ██  ██  ██
+    ███████ ██ ██  ██ ███████ █████   █████
+         ██ ██  ██ ██ ██   ██ ██  ██  ██
+    ███████ ██   ████ ██   ██ ██   ██ ███████
+
+           ~ Classic Arcade Game ~
 ```
 
-## play it in the browser
+## Technical Specifications
 
-Open the [playground](https://aarch64-playground.vercel.app/playground),
-paste `snake.asm` into the editor, assemble, and run. When the program
-pauses for input, type a line of moves into the console and press run to
-continue. No install, no toolchain.
+### Target Architecture
+- **ISA**: ARMv8-A (AArch64)
+- **ABI**: AAPCS64 (ARM Architecture Procedure Call Standard)
+- **Operating System**: Linux (kernel 4.1+)
+- **Word Size**: 64-bit
 
-## build it on linux
+### Hardware Requirements
+- ARM64 processor (Cortex-A53, Cortex-A72, Apple Silicon, etc.)
+- Minimum 32MB RAM
+- Terminal supporting ANSI escape sequences
 
-On an arm64 machine (Raspberry Pi, Apple Silicon VM, a university ARM
-server):
+### Software Dependencies
+- GNU m4 (macro preprocessor)
+- GNU Binutils (assembler `as`, linker `ld`)
+- Optional: GCC for alternative linking
+- Make utility for build automation
 
+## Architecture and Implementation
+
+### System Call Interface
+The program interfaces directly with the Linux kernel through the ARMv8 system call convention:
+- System call number in register `x8`
+- Arguments in registers `x0-x5`
+- Invocation via `svc #0` instruction
+- Return value in `x0`
+
+**Primary System Calls Used:**
+- `read(63)`: Non-blocking keyboard input
+- `write(64)`: Terminal output operations
+- `ioctl(29)`: Terminal mode configuration
+- `nanosleep(101)`: Game timing control
+- `getrandom(278)`: Cryptographically secure random number generation
+- `fcntl(25)`: File descriptor flag manipulation
+- `openat(56)`: File access for high score persistence
+- `close(57)`: File descriptor cleanup
+
+### Memory Management
+The program employs static memory allocation exclusively, with no dynamic memory allocation or standard library dependencies.
+
+**Memory Layout:**
+```
+.text    : Executable code (~2KB)
+.data    : Game state and constants (~6KB)
+.bss     : Uninitialized data buffers
+```
+
+**Key Data Structures:**
+- `game_grid`: 2D array representing the 30×20 play field
+- `snake_body`: Circular buffer storing coordinate pairs for snake segments
+- `termios_orig/raw`: Terminal configuration structures
+
+### Game Engine Architecture
+
+#### Core Game Loop
+```
+1. Level Selection → 2. Input Processing → 3. Game Logic → 4. Collision Detection → 5. Rendering → 6. Timing
+```
+
+#### Multi-Level System
+- Interactive welcome screen with level selection interface
+- Arrow key navigation (↑/↓ or W/S keys) for level selection
+- Visual selection indicators with real-time menu updates
+- Three distinct gameplay modes with unique mechanics
+
+#### Input Handling System
+- Non-blocking input via modified file descriptor flags
+- Support for both WASD keys and arrow key sequences
+- Escape sequence parsing for arrow keys (`\x1b[A`, `\x1b[B`, etc.)
+- Direction change validation preventing 180-degree turns
+- Menu navigation support for level selection
+
+#### Collision Detection
+- Level-aware boundary collision with configurable behavior
+- Self-collision: Grid-based lookup for occupied cells
+- Wall wrapping mechanics for specific game modes
+- Optimized with early termination on first collision detected
+
+#### Rendering Pipeline
+- ANSI escape sequence generation for cursor positioning
+- Color-coded cell rendering (green snake, red food, white borders)
+- Selective screen updates to reduce flicker
+- Score display with integer-to-ASCII conversion
+- Level indicator display showing current game mode
+
+### Terminal Control Implementation
+The program implements raw terminal mode to capture individual keystrokes:
+
+1. **Save original terminal settings** via `ioctl(TCGETS)`
+2. **Configure raw mode** by clearing `ICANON` and `ECHO` flags
+3. **Set immediate input** with `VMIN=1, VTIME=0`
+4. **Restore settings on exit** for proper cleanup
+
+This approach bypasses line buffering and provides real-time input response essential for interactive gameplay.
+
+## Run It
+
+**On x86_64:**
 ```bash
+sudo apt install m4 qemu-user qemu-user-static gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
 m4 snake.asm > snake.s
-gcc -static snake.s -o snake
-./snake
-```
-
-On x86_64, cross-build and run under QEMU:
-
-```bash
-sudo apt install m4 gcc-aarch64-linux-gnu qemu-user
-m4 snake.asm > snake.s
-aarch64-linux-gnu-gcc -static snake.s -o snake
+aarch64-linux-gnu-as -o snake.o snake.s
+aarch64-linux-gnu-ld -o snake snake.o
 qemu-aarch64 ./snake
 ```
 
-`make` wraps the native build, `make qemu-run` the QEMU one. A prebuilt
-static binary is attached to each release, so you can also skip the
-toolchain entirely and just `qemu-aarch64 ./snake`.
-
-## how to play
-
-Pick a mode from the menu (1-4). Each turn, type moves and press enter:
-
-| input   | effect                                    |
-|---------|-------------------------------------------|
-| `w a s d` | one step up / left / down / right       |
-| `dddww` | a whole route, one frame per step          |
-| `5d`    | repeat a move: five steps right            |
-| enter   | a blank line steps ahead once              |
-| `q`     | end the game                               |
-
-The snake cannot reverse into its own neck, and moves after a death in
-the same line are dropped.
-
-**Modes.** classic ends a life on the walls, endless wraps around the
-edges, sprint moves two cells per step, maze adds eight obstacles.
-
-**Food.** `*` is worth 10, the golden `$` is worth 50, and the rare `~`
-shrink pickup trims three segments off your tail.
-
-**Lives.** You get three. A collision resets the snake to the center but
-keeps your score.
-
-**High scores.** The best score per mode is kept in `scores.txt` next to
-the binary, written with raw `openat`/`write`/`close` syscalls.
-
-**Seed.** The same run plays out the same way every time. Pass a number
-argument (`./snake 1234`, or the args field in the playground) for a
-different food layout.
-
-## files
-
-```
-snake.asm   the game, one m4-preprocessed assembly file
-Makefile    m4 + gcc pipeline (native, cross, qemu)
+**On ARM64 (Raspberry Pi, etc):**
+```bash
+make run
 ```
 
-`m4 snake.asm > snake.s` produces the plain GAS file the assembler
-consumes; `snake.s` is generated output and stays out of version control.
+**In the browser:**
 
-## license
+A turn-based adaptation of this game runs in the [AArch64 Playground](https://aarch64-playground.vercel.app/playground?example=snake). Pick it from the examples menu, run it, and type a line of moves into the console each turn.
+
+## Controls
+
+**Menu:** Arrow keys or W/S to move, ENTER to select, Q to quit
+
+**Game:** Arrow keys or WASD to move, SPACE to pause, Q to quit
+
+**Game Over:** R to restart, Q for menu
+
+## Game Modes
+
+- **CLASSIC** - Hit a wall, lose a life
+- **ENDLESS** - Walls wrap around
+- **SPEED** - Everything moves faster
+- **MAZE** - Obstacles on the field
+
+## Power-ups
+
+10% chance to spawn after eating food:
+- Blue `~` = Slow motion (shows countdown)
+- Purple `-` = Shrinks your snake
+
+## Lives
+
+You get 3 lives. Screen flashes red when you die. Score keeps going until all lives gone.
+
+## High Scores
+
+Saved to `file.txt`, one score per level. Shows on the menu.
+
+## Files
+
+```
+snake.asm            - The source code of the game (m4 + assembly)
+Makefile             - Build commands
+file.txt             - High scores
+QEMU_SETUP_GUIDE.md  - Setup help for x86_64
+```
+
+## Build Commands
+
+```bash
+make              # Build (ARM64 only)
+make run          # Build and run (ARM64 only)
+make qemu-run     # Build and run with QEMU (x86_64)
+make clean        # Delete build files
+```
+
+## References
+
+- ARM Limited. *ARM Architecture Reference Manual ARMv8*
+- Torvalds, L. *Linux System Call Interface*
+- Free Software Foundation. *GNU Assembler Manual*
+- Stevens, W.R. *Advanced Programming in the UNIX Environment*
+
+## License
 
 MIT
