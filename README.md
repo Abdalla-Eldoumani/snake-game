@@ -126,7 +126,7 @@ make run
 
 **In the browser:**
 
-A turn-based adaptation of this game runs in the [AArch64 Playground](https://aarch64-playground.vercel.app/playground?example=snake). Pick it from the examples menu, run it, and type a line of moves into the console each turn.
+The game runs in the [AArch64 Playground](https://aarch64-playground.vercel.app/playground?example=snake) -- the real thing, not a port: the playground's emulator implements the terminal syscalls this game stands on, hands it the terminal pane, and you play live with the same keys. A turn-based console adaptation ships alongside it for the curious.
 
 ## Controls
 
