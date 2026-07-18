@@ -92,6 +92,19 @@ SHRINK_AMOUNT = 3
 INITIAL_LIVES = 3
 SLOWMO_SPEED = 400
 
+// Combo streak: meals within COMBO_WINDOW seconds of each other
+// multiply their points, up to COMBO_MAX
+COMBO_WINDOW = 3
+COMBO_MAX = 5
+
+// Golden food goes back to normal after this many seconds
+GOLD_LIFETIME = 7
+
+// Maze mode grows a new obstacle every ESCALATE_EVERY meals, capped
+// at NUM_OBSTACLES + MAX_EXTRA_OBSTACLES walls on the board
+ESCALATE_EVERY = 5
+MAX_EXTRA_OBSTACLES = 8
+
 _start:
     // Set up stack frame
     stp     fp, lr, [sp, -16]!
@@ -1003,6 +1016,24 @@ init_game:
     adr     x0, restart_requested
     str     wzr, [x0]
 
+    // Fresh run: reset the streak, the per-run records, the gold
+    // timer, and the obstacle census
+    adr     x0, combo_mult
+    mov     w1, 1
+    str     w1, [x0]
+    adr     x0, best_combo
+    str     w1, [x0]
+    adr     x0, last_eat_sec
+    mov     w1, -100
+    str     w1, [x0]
+    adr     x0, max_length
+    mov     w1, INITIAL_SNAKE_LENGTH
+    str     w1, [x0]
+    adr     x0, gold_deadline
+    str     wzr, [x0]
+    adr     x0, obstacle_count
+    str     wzr, [x0]
+
     // Record game start time
     bl      get_current_time
     adr     x0, game_start_time
@@ -1114,6 +1145,100 @@ position_ok:
     b       init_obstacle_loop
 
 init_obstacles_done:
+    adr     x0, obstacle_count
+    mov     w1, NUM_OBSTACLES
+    str     w1, [x0]
+
+    ldp     fp, lr, [sp], 16
+    ret
+
+// Add one obstacle at a random empty cell, away from the snake's
+// head, for the maze escalation. Gives up quietly at the array's
+// capacity or after too many placement attempts on a crowded board.
+add_obstacle:
+    stp     fp, lr, [sp, -16]!
+    mov     fp, sp
+
+    adr     x0, obstacle_count
+    ldr     w1, [x0]
+    cmp     w1, (NUM_OBSTACLES + MAX_EXTRA_OBSTACLES)
+    b.ge    add_obstacle_done
+
+    mov     w9, 0
+
+add_obstacle_retry:
+    add     w9, w9, 1
+    cmp     w9, 200
+    b.gt    add_obstacle_done
+
+    adr     x0, random_buffer
+    mov     x1, 2
+    mov     x2, 0
+    mov     x8, SYS_GETRANDOM
+    svc     0
+
+    adr     x0, random_buffer
+    ldrb    w1, [x0]
+    mov     w2, GRID_WIDTH
+    udiv    w3, w1, w2
+    msub    w10, w3, w2, w1
+
+    ldrb    w1, [x0, 1]
+    mov     w2, GRID_HEIGHT
+    udiv    w3, w1, w2
+    msub    w11, w3, w2, w1
+
+    // Never wall off the cell the player is about to enter: keep a
+    // small buffer around the head
+    adr     x0, snake_head_index
+    ldr     w1, [x0]
+    mov     w2, 8
+    mul     w1, w1, w2
+    adr     x0, snake_body
+    add     x0, x0, x1
+    ldr     w5, [x0]
+    ldr     w6, [x0, 4]
+
+    subs    w5, w10, w5
+    neg     w7, w5
+    cmp     w5, 0
+    csel    w5, w7, w5, lt
+    subs    w6, w11, w6
+    neg     w7, w6
+    cmp     w6, 0
+    csel    w6, w7, w6, lt
+    add     w5, w5, w6
+    cmp     w5, 3
+    b.le    add_obstacle_retry
+
+    // Only claim a cell that is empty right now
+    mov     w2, GRID_WIDTH
+    mul     w3, w11, w2
+    add     w3, w3, w10
+    adr     x0, game_grid
+    ldrb    w4, [x0, x3]
+    cbnz    w4, add_obstacle_retry
+
+    // Append to the list and mark the grid
+    adr     x0, obstacle_count
+    ldr     w1, [x0]
+    mov     w2, 8
+    mul     w2, w1, w2
+    adr     x3, obstacle_positions
+    add     x3, x3, x2
+    str     w10, [x3]
+    str     w11, [x3, 4]
+    add     w1, w1, 1
+    str     w1, [x0]
+
+    mov     w2, GRID_WIDTH
+    mul     w3, w11, w2
+    add     w3, w3, w10
+    adr     x0, game_grid
+    mov     w4, CELL_OBSTACLE
+    strb    w4, [x0, x3]
+
+add_obstacle_done:
     ldp     fp, lr, [sp], 16
     ret
 
@@ -1481,6 +1606,14 @@ handle_collision_with_lives:
     // Check if game over
     cbz     w1, lives_game_over
 
+    // Dying breaks the combo streak
+    adr     x0, combo_mult
+    mov     w1, 1
+    str     w1, [x0]
+    adr     x0, last_eat_sec
+    mov     w1, -100
+    str     w1, [x0]
+
     // Still have lives - play death flash then respawn
     bl      play_death_flash
     bl      reset_snake_position
@@ -1577,7 +1710,14 @@ check_food_collision:
     ldr     w1, [x0]
     add     w1, w1, 1
     str     w1, [x0]
-    
+
+    // Track the longest the snake has been this run
+    adr     x0, max_length
+    ldr     w2, [x0]
+    cmp     w1, w2
+    csel    w2, w1, w2, gt
+    str     w2, [x0]
+
     // Check food type for score bonus and sound
     adr     x0, food_type
     ldr     w2, [x0]
@@ -1594,6 +1734,11 @@ golden_food_eaten:
     mov     w2, 5
     
 add_score:
+    // A live streak multiplies the base points
+    mov     w0, w2
+    bl      apply_combo
+    mov     w2, w0
+
     adr     x0, score
     ldr     w1, [x0]
     
@@ -1612,12 +1757,26 @@ safe_add:
     str     w1, [x0]
     
 add_score_done:
-    
+
     adr     x0, food_count
     ldr     w1, [x0]
     add     w1, w1, 1
     str     w1, [x0]
-    
+
+    // Maze mode grows a new wall every few meals
+    adr     x0, current_level
+    ldr     w0, [x0]
+    cmp     w0, LEVEL_OBSTACLES
+    b.ne    skip_escalation
+    adr     x0, food_count
+    ldr     w0, [x0]
+    mov     w1, ESCALATE_EVERY
+    udiv    w2, w0, w1
+    msub    w3, w2, w1, w0
+    cbnz    w3, skip_escalation
+    bl      add_obstacle
+skip_escalation:
+
     // Place new food
     bl      place_food
     
@@ -1627,6 +1786,9 @@ no_food_collision:
 
     // Update power-up timer
     bl      update_powerup_timer
+
+    // Golden food does not wait around forever
+    bl      update_gold_timer
 
     // Update grid with new snake position
     bl      update_grid
@@ -1660,7 +1822,17 @@ place_food:
     mov     w3, FOOD_NORMAL
     csel    w1, w2, w3, eq
     str     w1, [x0]
-    
+
+    // Golden food starts its expiry clock the moment it appears
+    cmp     w1, FOOD_GOLDEN
+    b.ne    place_food_loop
+    bl      calculate_elapsed_time
+    adr     x0, elapsed_seconds
+    ldr     w1, [x0]
+    add     w1, w1, GOLD_LIFETIME
+    adr     x0, gold_deadline
+    str     w1, [x0]
+
 place_food_loop:
     // Get random numbers for x and y
     adr     x0, random_buffer
@@ -1996,7 +2168,9 @@ snake_placed:
     mov     w20, 0
 
 place_obstacles_loop:
-    cmp     w20, NUM_OBSTACLES
+    adr     x0, obstacle_count
+    ldr     w0, [x0]
+    cmp     w20, w0
     b.ge    skip_place_obstacles
 
     mov     w0, 8
@@ -2193,9 +2367,22 @@ draw_snake_cell:
     b       draw_cell_done
 
 draw_body_cell:
+    // Checkerboard shading (by cell parity) gives the body texture
+    add     w2, w19, w20
+    tst     w2, 1
+    b.ne    draw_body_cell_alt
+
     mov     x0, STDOUT_FILENO
     adr     x1, snake_cell
     mov     x2, snake_cell_len
+    mov     x8, SYS_WRITE
+    svc     0
+    b       draw_cell_done
+
+draw_body_cell_alt:
+    mov     x0, STDOUT_FILENO
+    adr     x1, snake_cell_alt
+    mov     x2, snake_cell_alt_len
     mov     x8, SYS_WRITE
     svc     0
     b       draw_cell_done
@@ -2392,6 +2579,44 @@ draw_header:
     adr     x1, speed_buffer
     mov     x8, SYS_WRITE
     svc     0
+
+    // Show the streak multiplier while it is still alive
+    adr     x0, combo_mult
+    ldr     w0, [x0]
+    cmp     w0, 1
+    b.le    skip_combo_indicator
+    adr     x0, elapsed_seconds
+    ldr     w1, [x0]
+    adr     x0, last_eat_sec
+    ldr     w2, [x0]
+    sub     w1, w1, w2
+    cmp     w1, COMBO_WINDOW
+    b.gt    skip_combo_indicator
+
+    mov     x0, STDOUT_FILENO
+    adr     x1, combo_prefix
+    mov     x2, combo_prefix_len
+    mov     x8, SYS_WRITE
+    svc     0
+
+    adr     x0, combo_mult
+    ldr     w0, [x0]
+    adr     x1, speed_buffer
+    bl      int_to_string
+
+    mov     x2, x0
+    mov     x0, STDOUT_FILENO
+    adr     x1, speed_buffer
+    mov     x8, SYS_WRITE
+    svc     0
+
+    mov     x0, STDOUT_FILENO
+    adr     x1, combo_suffix
+    mov     x2, combo_suffix_len
+    mov     x8, SYS_WRITE
+    svc     0
+
+skip_combo_indicator:
 
     // Display slowmo countdown if active
     adr     x0, powerup_active
@@ -2648,7 +2873,80 @@ display_game_over:
     mov     x2, 1
     mov     x8, SYS_WRITE
     svc     0
-    
+
+    // Time survived
+    bl      calculate_elapsed_time
+    mov     x0, STDOUT_FILENO
+    adr     x1, stats_time_text
+    mov     x2, stats_time_text_len
+    mov     x8, SYS_WRITE
+    svc     0
+
+    adr     x0, elapsed_seconds
+    ldr     w0, [x0]
+    adr     x1, time_buffer
+    bl      int_to_string
+
+    mov     x2, x0
+    mov     x0, STDOUT_FILENO
+    adr     x1, time_buffer
+    mov     x8, SYS_WRITE
+    svc     0
+
+    mov     x0, STDOUT_FILENO
+    adr     x1, stats_time_unit
+    mov     x2, stats_time_unit_len
+    mov     x8, SYS_WRITE
+    svc     0
+
+    // Longest the snake got
+    mov     x0, STDOUT_FILENO
+    adr     x1, stats_len_text
+    mov     x2, stats_len_text_len
+    mov     x8, SYS_WRITE
+    svc     0
+
+    adr     x0, max_length
+    ldr     w0, [x0]
+    adr     x1, speed_buffer
+    bl      int_to_string
+
+    mov     x2, x0
+    mov     x0, STDOUT_FILENO
+    adr     x1, speed_buffer
+    mov     x8, SYS_WRITE
+    svc     0
+
+    mov     x0, STDOUT_FILENO
+    adr     x1, newline
+    mov     x2, 1
+    mov     x8, SYS_WRITE
+    svc     0
+
+    // Deepest combo streak
+    mov     x0, STDOUT_FILENO
+    adr     x1, stats_combo_text
+    mov     x2, stats_combo_text_len
+    mov     x8, SYS_WRITE
+    svc     0
+
+    adr     x0, best_combo
+    ldr     w0, [x0]
+    adr     x1, speed_buffer
+    bl      int_to_string
+
+    mov     x2, x0
+    mov     x0, STDOUT_FILENO
+    adr     x1, speed_buffer
+    mov     x8, SYS_WRITE
+    svc     0
+
+    mov     x0, STDOUT_FILENO
+    adr     x1, newline
+    mov     x2, 1
+    mov     x8, SYS_WRITE
+    svc     0
+
     // Check for new records and save high scores
     bl      check_and_update_records
 
@@ -2839,6 +3137,82 @@ calculate_elapsed_time:
     adr     x0, elapsed_seconds
     str     w2, [x0]
     
+    ldp     fp, lr, [sp], 16
+    ret
+
+// Apply the combo streak to a meal's base points.
+// In: w0 = base points. Out: w0 = points times the streak multiplier.
+// A meal within COMBO_WINDOW seconds of the last one deepens the
+// streak (up to COMBO_MAX); a slower meal resets it to 1.
+apply_combo:
+    stp     fp, lr, [sp, -16]!
+    mov     fp, sp
+    stp     x19, x20, [sp, -16]!
+
+    mov     w19, w0
+
+    bl      calculate_elapsed_time
+    adr     x0, elapsed_seconds
+    ldr     w1, [x0]
+    adr     x2, last_eat_sec
+    ldr     w3, [x2]
+    str     w1, [x2]
+    sub     w3, w1, w3
+
+    adr     x4, combo_mult
+    ldr     w5, [x4]
+    cmp     w3, COMBO_WINDOW
+    b.gt    combo_reset
+
+    add     w5, w5, 1
+    mov     w0, COMBO_MAX
+    cmp     w5, w0
+    csel    w5, w0, w5, gt
+    b       combo_store
+
+combo_reset:
+    mov     w5, 1
+
+combo_store:
+    str     w5, [x4]
+
+    // Remember the deepest streak for the game over screen
+    adr     x0, best_combo
+    ldr     w1, [x0]
+    cmp     w5, w1
+    csel    w1, w5, w1, gt
+    str     w1, [x0]
+
+    mul     w0, w19, w5
+
+    ldp     x19, x20, [sp], 16
+    ldp     fp, lr, [sp], 16
+    ret
+
+// Downgrade golden food to normal once its window passes. The grid
+// cell stays CELL_FOOD either way; the draw code reads food_type.
+update_gold_timer:
+    stp     fp, lr, [sp, -16]!
+    mov     fp, sp
+
+    adr     x0, food_type
+    ldr     w1, [x0]
+    cmp     w1, FOOD_GOLDEN
+    b.ne    gold_timer_done
+
+    bl      calculate_elapsed_time
+    adr     x0, elapsed_seconds
+    ldr     w1, [x0]
+    adr     x2, gold_deadline
+    ldr     w3, [x2]
+    cmp     w1, w3
+    b.le    gold_timer_done
+
+    adr     x0, food_type
+    mov     w1, FOOD_NORMAL
+    str     w1, [x0]
+
+gold_timer_done:
     ldp     fp, lr, [sp], 16
     ret
 
@@ -4013,8 +4387,10 @@ game_paused:    .word 0
 quit_flag:      .word 0
 current_level:  .word LEVEL_NORMAL
 
-// Obstacle data (6 obstacles, each with x,y coordinates = 12 words)
-obstacle_positions: .space (NUM_OBSTACLES * 8)
+// Obstacle data: the six starting obstacles plus room for the walls
+// maze mode adds as the game escalates, each an x,y pair
+obstacle_positions: .space ((NUM_OBSTACLES + MAX_EXTRA_OBSTACLES) * 8)
+obstacle_count: .word 0
 
 // Power-up data
 powerup_position:   .space 8
@@ -4033,6 +4409,13 @@ current_time:   .space 16
 pause_start_time: .space 16
 total_paused_time: .word 0
 elapsed_seconds: .word 0
+
+// Combo streak and per-run records
+combo_mult:     .word 1
+last_eat_sec:   .word 0
+best_combo:     .word 1
+max_length:     .word INITIAL_SNAKE_LENGTH
+gold_deadline:  .word 0
 
 // High score data (level-specific)
 high_score_level1: .word 0
@@ -4150,6 +4533,9 @@ move_cursor_home_len = . - move_cursor_home
 snake_cell: .ascii "\x1b[42m \x1b[0m"
 snake_cell_len = . - snake_cell
 
+snake_cell_alt: .ascii "\x1b[102m \x1b[0m"
+snake_cell_alt_len = . - snake_cell_alt
+
 food_cell: .ascii "\x1b[41m*\x1b[0m"
 food_cell_len = . - food_cell
 
@@ -4217,6 +4603,14 @@ final_score_text: .ascii "\x1b[93m    Final Score: \x1b[0m\x1b[1m"
 final_score_text_len = . - final_score_text
 
 food_count_text: .ascii "\x1b[0m\n\x1b[96m    Food Eaten:  \x1b[0m"
+stats_time_text: .ascii "\x1b[95m    Time Alive:  \x1b[0m"
+stats_time_text_len = . - stats_time_text
+stats_time_unit: .ascii "s\n"
+stats_time_unit_len = . - stats_time_unit
+stats_len_text: .ascii "\x1b[92m    Max Length:  \x1b[0m"
+stats_len_text_len = . - stats_len_text
+stats_combo_text: .ascii "\x1b[93m    Best Combo:  \x1b[0mx"
+stats_combo_text_len = . - stats_combo_text
 food_count_text_len = . - food_count_text
 
 pause_text: .ascii "\n\x1b[93m\x1b[1m  ╔═══════════════════════════════════╗\n  ║  PAUSED - Press SPACE to resume  ║\n  ╚═══════════════════════════════════╝\x1b[0m\n"
@@ -4241,6 +4635,12 @@ slowmo_prefix: .ascii " \x1b[44m\x1b[1m SLOW "
 slowmo_prefix_len = . - slowmo_prefix
 
 slowmo_suffix: .ascii "s \x1b[0m"
+
+combo_prefix: .ascii " \x1b[93m\x1b[1mx"
+combo_prefix_len = . - combo_prefix
+
+combo_suffix: .ascii "\x1b[0m"
+combo_suffix_len = . - combo_suffix
 slowmo_suffix_len = . - slowmo_suffix
 
 slowmo_timer_buffer: .space 4  // Buffer for timer digits
