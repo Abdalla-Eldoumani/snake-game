@@ -3,9 +3,6 @@ snake.s
 snake
 *.o
 
-# player data
-scores.txt
-
 # editor files
 .vscode/
 *.swp
