@@ -141,7 +141,13 @@ A turn-based adaptation of this game runs in the [AArch64 Playground](https://aa
 - **CLASSIC** - Hit a wall, lose a life
 - **ENDLESS** - Walls wrap around
 - **SPEED** - Everything moves faster
-- **MAZE** - Obstacles on the field
+- **MAZE** - Obstacles on the field, and a new wall grows every 5 foods
+
+## Scoring
+
+- Normal food `*` = 1 point
+- Golden food `*` = 5 points, 20% spawn chance, gone if you dawdle past 7 seconds
+- **Combo streaks**: eat again within 3 seconds and your points multiply - x2, x3, up to x5. The multiplier shows in the header while the streak is alive, and dying resets it.
 
 ## Power-ups
 
@@ -151,7 +157,7 @@ A turn-based adaptation of this game runs in the [AArch64 Playground](https://aa
 
 ## Lives
 
-You get 3 lives. Screen flashes red when you die. Score keeps going until all lives gone.
+You get 3 lives. Screen flashes red when you die. Score keeps going until all lives gone. The game over screen tallies your run: time alive, longest length, and your deepest combo.
 
 ## High Scores
 
