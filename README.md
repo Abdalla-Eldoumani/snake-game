@@ -28,7 +28,7 @@ make qemu-run
 ```
 
 **Browser**: the exact same program runs in the
-[AArch64 Playground](https://aarch64-playground.vercel.app/playground?example=snake) --
+[AArch64 Playground](https://aarch64-playground.com/playground?example=snake) --
 its emulator implements the terminal syscalls this game stands on and
 hands it the terminal pane. Same keys, same game, no install.
 
